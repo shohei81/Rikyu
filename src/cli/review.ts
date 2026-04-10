@@ -13,6 +13,7 @@ export interface ReviewCommandOptions {
 export interface HandleReviewCommandInput {
   target?: string;
   options?: ReviewCommandOptions;
+  prompt?: string;
   deps?: CommandHandlerDeps & {
     collectContext?: typeof collectSessionContext;
   };
@@ -45,7 +46,7 @@ export async function handleReviewCommand(input: HandleReviewCommandInput = {}) 
   progress.stage("reading");
   const context = await (deps.collectContext ?? collectSessionContext)(contextOptions);
   const brief = toReviewBrief(input.target, input.options);
-  const userRequest = toReviewUserRequest(input.target, input.options);
+  const userRequest = input.prompt?.trim() || toReviewUserRequest(input.target, input.options);
 
   return executeCollaborationCommand({
     userRequest,

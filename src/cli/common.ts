@@ -10,6 +10,7 @@ import { runCollaborationFlow } from "../collaboration/flow.js";
 import { loadRikyuConfig } from "../config/loader.js";
 import { createProgressReporter, type ProgressReporter } from "../output/streaming.js";
 import { writeTextOutput } from "../output/text.js";
+import { saveSessionSnapshot } from "../session/store.js";
 
 export interface CommandIo {
   stdout: (text: string) => void;
@@ -23,6 +24,8 @@ export interface CommandHandlerDeps {
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
   createRequestId?: () => string;
   createProgressReporter?: (enabled: boolean) => ProgressReporter;
+  sessionId?: string;
+  saveSessionSnapshot?: typeof saveSessionSnapshot;
 }
 
 export interface ExecuteCommandOptions {
@@ -58,6 +61,21 @@ export async function executeCollaborationCommand(
     cwd: deps.cwd,
     degradedStderrLogger: (line) => io.stderr(`${line}\n`),
   });
+
+  if (deps.sessionId) {
+    await (deps.saveSessionSnapshot ?? saveSessionSnapshot)(
+      {
+        sessionId: deps.sessionId,
+        brief,
+        mizuyaResponses: result.mizuyaResponse ? [result.mizuyaResponse] : [],
+        metadata: {
+          lastRequestId: result.requestId,
+          degraded: result.degraded,
+        },
+      },
+      { cwd: deps.cwd },
+    );
+  }
 
   writeTextOutput(result, io.stdout);
   if (config.verbose) {
