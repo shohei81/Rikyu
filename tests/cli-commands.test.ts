@@ -8,6 +8,7 @@ import type { CommandHandlerDeps } from "../src/cli/common.js";
 import type { CollaborationResult, RunCollaborationFlowInput } from "../src/collaboration/flow.js";
 import type { SessionContext } from "../src/session/context.js";
 import type { RikyuConfig } from "../src/config/schema.js";
+import type { MizuyaResponse } from "../src/mizuya/schema.js";
 
 const baseConfig: RikyuConfig = {
   mode: "quick",
@@ -254,7 +255,47 @@ describe("handleFixCommand", () => {
     await handleFixCommand({ options: { patch: true }, deps });
     await handleFixCommand({ options: { apply: true }, deps });
 
-    expect(outcomes).toEqual(["patch-proposal", "apply"]);
+    expect(outcomes).toEqual(["patch-proposal", "apply", "review"]);
+  });
+
+  it("runs a suppressed re-review after fix apply and notifies new findings", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const previousReview = mizuyaResponse([finding("same", "Same issue")]);
+    const nextReview = mizuyaResponse([
+      finding("same", "Same issue"),
+      finding("new", "New issue"),
+    ]);
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      stderr: (text) => stderr.push(text),
+      mizuyaResponse: previousReview,
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        if (input.brief.task === "review") {
+          return result("Re-review output", { mizuyaResponse: nextReview });
+        }
+        return result("Fix output", { mizuyaResponse: input.mizuyaResponse });
+      },
+    });
+
+    await handleFixCommand({ options: { apply: true }, deps });
+
+    expect(flowInputs).toHaveLength(2);
+    expect(flowInputs[0]).toMatchObject({
+      brief: { task: "fix", desiredOutcome: "apply" },
+      skipMizuya: true,
+      mizuyaResponse: previousReview,
+    });
+    expect(flowInputs[1]).toMatchObject({
+      brief: { task: "review", desiredOutcome: "review" },
+      context: [{ label: "git-diff:working-tree", content: "diff" }],
+    });
+    expect(flowInputs[1]?.mizuyaResponse).toBeUndefined();
+    expect(stdout).toEqual(["Fix output\n"]);
+    expect(stderr.join("")).toContain("Re-review found 1 new issue(s) after apply.");
+    expect(stderr.join("")).toContain("- warning new: New issue");
   });
 });
 
@@ -268,6 +309,7 @@ function createDeps(options: {
       ? C
       : never
     : never;
+  mizuyaResponse?: MizuyaResponse;
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
 } = {}): CommandHandlerDeps & { collectContext?: NonNullable<typeof options.collectContext> } {
   const config = options.config ?? baseConfig;
@@ -279,6 +321,7 @@ function createDeps(options: {
     },
     loadConfig: async () => config,
     createRequestId: () => "req-test",
+    mizuyaResponse: options.mizuyaResponse,
     createProgressReporter: (enabled) => ({
       stage: (stage) => {
         if (enabled) options.progress?.(stage);
@@ -288,6 +331,26 @@ function createDeps(options: {
       options.collectContext ??
       (async () => context([{ label: "git-diff:working-tree", content: "diff" }])),
     runFlow: options.runFlow ?? (async () => result("Output")),
+  };
+}
+
+function mizuyaResponse(findings: MizuyaResponse["findings"]): MizuyaResponse {
+  return {
+    requestId: "req-review",
+    findings,
+    summary: "review summary",
+    doubts: [],
+    contextUsed: ["diff"],
+  };
+}
+
+function finding(ruleId: string, message: string): MizuyaResponse["findings"][number] {
+  return {
+    ruleId,
+    level: "warning",
+    message,
+    evidence: ["diff"],
+    confidence: "high",
   };
 }
 

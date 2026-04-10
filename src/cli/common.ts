@@ -47,6 +47,7 @@ export interface ExecuteCommandOptions {
   progress?: ProgressReporter;
   useMizuya?: boolean;
   mizuyaResponse?: MizuyaResponse;
+  suppressOutput?: boolean;
   cliMode?: CollaborationMode;
   outputOptions?: CommandOutputOptions;
   deps?: CommandHandlerDeps;
@@ -97,12 +98,14 @@ export async function executeCollaborationCommand(
     );
   }
 
-  if (outputConfig.json) {
-    writeJsonOutput(result, { brief, sessionId: deps.sessionId, totalMs: Date.now() - startedAt }, io.stdout);
-  } else {
-    writeTextOutput(result, io.stdout);
+  if (!options.suppressOutput) {
+    if (outputConfig.json) {
+      writeJsonOutput(result, { brief, sessionId: deps.sessionId, totalMs: Date.now() - startedAt }, io.stdout);
+    } else {
+      writeTextOutput(result, io.stdout);
+    }
   }
-  if (outputConfig.verbose) {
+  if (outputConfig.verbose && !options.suppressOutput) {
     writeVerboseResult(result, io.stderr, brief);
   }
   progress.stage("done");

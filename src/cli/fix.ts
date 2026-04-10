@@ -1,6 +1,10 @@
 import type { Command } from "commander";
 
 import { estimateChangeSize, selectChangeExecutor } from "../collaboration/change-size.js";
+import { compareReviewFindings, formatReReviewNotification } from "../collaboration/review-compare.js";
+import type { MizuyaResponse } from "../mizuya/schema.js";
+import { redactSecrets } from "../output/redaction.js";
+import { collectSessionContext, type CollectSessionContextOptions } from "../session/context.js";
 import type { DesiredOutcome, SessionBrief } from "../session/brief.js";
 import { modeFromFlags, type ModeFlagOptions } from "../session/mode.js";
 import { executeCollaborationCommand, type CommandHandlerDeps, type CommandOutputOptions } from "./common.js";
@@ -15,7 +19,9 @@ export interface HandleFixCommandInput {
   target?: string;
   options?: FixCommandOptions;
   prompt?: string;
-  deps?: CommandHandlerDeps;
+  deps?: CommandHandlerDeps & {
+    collectContext?: typeof collectSessionContext;
+  };
 }
 
 export function registerFixCommand(program: Command): void {
@@ -56,7 +62,7 @@ export async function handleFixCommand(input: HandleFixCommandInput = {}) {
     executor,
   });
 
-  return executeCollaborationCommand({
+  const result = await executeCollaborationCommand({
     userRequest,
     brief,
     useMizuya: false,
@@ -64,6 +70,12 @@ export async function handleFixCommand(input: HandleFixCommandInput = {}) {
     outputOptions: input.options,
     deps: input.deps,
   });
+
+  if (mode === "apply") {
+    await runReReviewAfterApply(input, result.mizuyaResponse);
+  }
+
+  return result;
 }
 
 function resolveFixMode(options: FixCommandOptions | undefined): DesiredOutcome {
@@ -85,4 +97,56 @@ function buildFixUserRequest(input: {
     `Selected executor: ${input.executor}.`,
     "Do not perform destructive changes without explicit approval.",
   ].join("\n");
+}
+
+async function runReReviewAfterApply(
+  input: HandleFixCommandInput,
+  previousReview: MizuyaResponse | undefined,
+): Promise<void> {
+  const deps = input.deps ?? {};
+  const io = deps.io ?? {
+    stdout: (text: string) => process.stdout.write(text),
+    stderr: (text: string) => process.stderr.write(text),
+  };
+  const reviewDeps = { ...deps, mizuyaResponse: undefined };
+  const contextOptions = toReReviewContextOptions(input.target, deps.cwd);
+  const context = await (deps.collectContext ?? collectSessionContext)(contextOptions);
+  const reviewResult = await executeCollaborationCommand({
+    userRequest: input.target
+      ? `Re-review ${input.target} after applying the fix.`
+      : "Re-review the working tree after applying the fix.",
+    brief: toReReviewBrief(input.target),
+    context: context.blocks,
+    suppressOutput: true,
+    cliMode: modeFromFlags(input.options),
+    outputOptions: input.options,
+    deps: reviewDeps,
+  });
+  if (!reviewResult.mizuyaResponse) {
+    io.stderr("Re-review completed without comparable mizuya findings.\n");
+    return;
+  }
+  const comparison = compareReviewFindings(previousReview, reviewResult.mizuyaResponse);
+  io.stderr(redactSecrets(formatReReviewNotification(comparison)));
+}
+
+function toReReviewContextOptions(
+  target: string | undefined,
+  cwd: string | undefined,
+): CollectSessionContextOptions {
+  if (target) return { cwd, target: "file", path: target };
+  return { cwd, target: "working-tree" };
+}
+
+function toReReviewBrief(target: string | undefined): SessionBrief {
+  if (target) {
+    return {
+      task: "review",
+      target: "file",
+      focus: [target],
+      desiredOutcome: "review",
+    };
+  }
+
+  return { task: "review", target: "working-tree", desiredOutcome: "review" };
 }
