@@ -48,6 +48,24 @@ describe("parseTeishuResponse", () => {
     });
   });
 
+  it("uses Claude Code envelope result text when nested JSON is not a TeishuResponse", () => {
+    const result = 'Created `docs/hoge.md` with content {"example":"hoge"}.';
+
+    expect(
+      parseTeishuResponse(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result,
+        }),
+      ),
+    ).toEqual({
+      output: result,
+      needsMoreFromMizuya: false,
+    });
+  });
+
   it("throws ProviderError for invalid response shape", () => {
     expect(() => parseTeishuResponse('{"output":"Done"}')).toThrow(ProviderError);
   });

@@ -18,7 +18,8 @@ export function parseTeishuResponse(raw: string): TeishuResponse {
     if (isClaudeJsonEnvelope(parsed)) {
       const nestedJsonText = extractJsonObject(parsed.result);
       if (nestedJsonText) {
-        return teishuResponseSchema.parse(JSON.parse(nestedJsonText));
+        const nested = teishuResponseSchema.safeParse(JSON.parse(nestedJsonText));
+        if (nested.success) return nested.data;
       }
       return {
         output: parsed.result,
