@@ -9,6 +9,7 @@ import type {
 } from "../collaboration/flow.js";
 import { runCollaborationFlow } from "../collaboration/flow.js";
 import { loadRikyuConfig } from "../config/loader.js";
+import { resolvePolicySettings, shouldFailForFindings } from "../config/policy.js";
 import { writeJsonOutput } from "../output/json.js";
 import { redactSecrets } from "../output/redaction.js";
 import { writeSarifOutput } from "../output/sarif.js";
@@ -109,9 +110,10 @@ export async function executeCollaborationCommand(
   }
 
   if (ciMode) {
+    const policy = await resolvePolicySettings({ cwd: deps.cwd, profile: outputConfig.policyProfile });
     (deps.setExitCode ?? ((code: number) => {
       process.exitCode = code;
-    }))(ciExitCode(result));
+    }))(ciExitCode(result, policy));
   }
 
   if (!options.suppressOutput && !shouldSuppressQuietOutput(result, quietMode)) {
@@ -170,11 +172,12 @@ function shouldSuppressQuietOutput(result: CollaborationResult, quietMode: boole
   return quietMode && (result.mizuyaResponse?.findings.length ?? 0) === 0;
 }
 
-function ciExitCode(result: CollaborationResult): number {
+function ciExitCode(
+  result: CollaborationResult,
+  policy: Awaited<ReturnType<typeof resolvePolicySettings>>,
+): number {
   if (result.degraded) return 1;
-  return result.mizuyaResponse?.findings.some((finding) => finding.level === "error" || finding.level === "warning")
-    ? 1
-    : 0;
+  return shouldFailForFindings(result.mizuyaResponse?.findings ?? [], policy) ? 1 : 0;
 }
 
 const defaultIo: CommandIo = {

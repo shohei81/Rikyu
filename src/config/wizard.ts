@@ -31,9 +31,16 @@ async function promptForConfig(rl: Interface, defaults: RikyuConfig): Promise<Pa
     defaults.mode,
     new Set(["auto", "quick", "standard", "deep"]),
   );
+  const policyProfile = await askWithDefault(
+    rl,
+    "policyProfile (strict/balanced/lenient)",
+    defaults.policyProfile,
+    new Set(["strict", "balanced", "lenient"]),
+  );
 
   return {
     mode,
+    policyProfile,
     verbose: await askBoolean(rl, "verbose", defaults.verbose),
     json: await askBoolean(rl, "json", defaults.json),
     progress: await askBoolean(rl, "progress", defaults.progress),

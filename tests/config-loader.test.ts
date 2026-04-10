@@ -41,6 +41,7 @@ describe("loadRikyuConfig", () => {
       verbose: true,
       json: false,
       progress: false,
+      policyProfile: "balanced",
     });
     expect(loaded.sources).toEqual({
       global: globalConfigPath,
@@ -97,6 +98,7 @@ describe("config set/get", () => {
 
     await setConfigValue(projectConfigPath, "mode", "standard");
     await setConfigValue(projectConfigPath, "verbose", "true");
+    await setConfigValue(projectConfigPath, "policyProfile", "strict");
 
     const loaded = await loadRikyuConfig({
       globalConfigPath: join(dir, "missing.json"),
@@ -104,9 +106,10 @@ describe("config set/get", () => {
     });
     const text = await readFile(projectConfigPath, "utf8");
 
-    expect(JSON.parse(text)).toEqual({ mode: "standard", verbose: true });
+    expect(JSON.parse(text)).toEqual({ mode: "standard", verbose: true, policyProfile: "strict" });
     expect(getConfigValue(loaded.config, "mode")).toBe("standard");
     expect(getConfigValue(loaded.config, "verbose")).toBe(true);
+    expect(getConfigValue(loaded.config, "policyProfile")).toBe("strict");
   });
 
   it("rejects invalid set values", async () => {

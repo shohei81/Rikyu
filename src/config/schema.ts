@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { policyProfileSchema } from "./policy.js";
+
 export const configModeSchema = z.enum(["auto", "quick", "standard", "deep"]);
 
 export const rikyuConfigSchema = z
@@ -8,6 +10,7 @@ export const rikyuConfigSchema = z
     verbose: z.boolean().default(false),
     json: z.boolean().default(false),
     progress: z.boolean().default(true),
+    policyProfile: policyProfileSchema.default("balanced"),
   })
   .strict();
 
@@ -17,10 +20,11 @@ export const partialRikyuConfigSchema = z
     verbose: z.boolean().optional(),
     json: z.boolean().optional(),
     progress: z.boolean().optional(),
+    policyProfile: policyProfileSchema.optional(),
   })
   .strict();
 
-export const configKeySchema = z.enum(["mode", "verbose", "json", "progress"]);
+export const configKeySchema = z.enum(["mode", "verbose", "json", "progress", "policyProfile"]);
 
 export const defaultRikyuConfig = rikyuConfigSchema.parse({});
 
@@ -36,6 +40,10 @@ export function parseConfigKey(key: string): ConfigKey {
 export function parseConfigValue(key: ConfigKey, rawValue: string): RikyuConfig[ConfigKey] {
   if (key === "mode") {
     return configModeSchema.parse(rawValue);
+  }
+
+  if (key === "policyProfile") {
+    return policyProfileSchema.parse(rawValue);
   }
 
   if (rawValue === "true") return true;

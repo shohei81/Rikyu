@@ -24,6 +24,7 @@ const config: RikyuConfig = {
   verbose: false,
   json: false,
   progress: false,
+  policyProfile: "balanced",
 };
 
 beforeEach(async () => {

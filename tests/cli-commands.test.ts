@@ -17,6 +17,7 @@ const baseConfig: RikyuConfig = {
   verbose: false,
   json: false,
   progress: true,
+  policyProfile: "balanced",
 };
 
 describe("handleReviewCommand", () => {
@@ -153,6 +154,22 @@ describe("handleReviewCommand", () => {
 
     expect(progressStages).toEqual([]);
     expect(exitCodes).toEqual([1]);
+  });
+
+  it("uses the configured policy profile for CI exit code", async () => {
+    const exitCodes: number[] = [];
+    const deps = createDeps({
+      config: { ...baseConfig, policyProfile: "lenient" },
+      setExitCode: (code) => exitCodes.push(code),
+      runFlow: async () =>
+        result("Review output", {
+          mizuyaResponse: mizuyaResponse([finding("rikyu.warning", "Warning message")]),
+        }),
+    });
+
+    await handleReviewCommand({ options: { ci: true }, deps });
+
+    expect(exitCodes).toEqual([0]);
   });
 
   it("suppresses quiet output when there are no findings", async () => {

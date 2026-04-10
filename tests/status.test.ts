@@ -57,7 +57,7 @@ describe("collectStatus", () => {
     ]);
     expect(report.config).toMatchObject({
       state: "valid",
-      config: { mode: "quick", verbose: false, json: false, progress: true },
+      config: { mode: "quick", verbose: false, json: false, progress: true, policyProfile: "balanced" },
     });
   });
 
