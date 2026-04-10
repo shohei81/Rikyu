@@ -36,6 +36,7 @@ export interface RunCollaborationFlowInput {
   userRequest: string;
   brief: SessionBrief;
   context?: PromptContextBlock[];
+  mizuyaResponse?: MizuyaResponse;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
@@ -60,11 +61,11 @@ export async function runCollaborationFlow(
 ): Promise<CollaborationResult> {
   const mizuya = input.mizuyaRunner ?? defaultMizuyaRunner;
   const teishu = input.teishuRunner ?? defaultTeishuRunner;
-  let mizuyaResponse: MizuyaResponse | undefined;
+  let mizuyaResponse: MizuyaResponse | undefined = input.mizuyaResponse;
   let degradedInfo: DegradedInfo | undefined;
-  let mizuyaTurns = 0;
+  let mizuyaTurns = input.mizuyaResponse ? 1 : 0;
 
-  if (!input.skipMizuya) {
+  if (!input.skipMizuya && !mizuyaResponse) {
     try {
       const mizuyaPrompt = buildMizuyaPrompt(toMizuyaPromptInput(input));
       const mizuyaResult = await mizuya(mizuyaPrompt, input);

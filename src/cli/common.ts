@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { MizuyaResponse } from "../mizuya/schema.js";
 import type { CollaborationMode, SessionBrief } from "../session/brief.js";
 import type { RikyuConfig } from "../config/schema.js";
 import type {
@@ -29,6 +30,7 @@ export interface CommandHandlerDeps {
   createRequestId?: () => string;
   createProgressReporter?: (enabled: boolean) => ProgressReporter;
   sessionId?: string;
+  mizuyaResponse?: MizuyaResponse;
   saveSessionSnapshot?: typeof saveSessionSnapshot;
 }
 
@@ -44,6 +46,7 @@ export interface ExecuteCommandOptions {
   config?: RikyuConfig;
   progress?: ProgressReporter;
   useMizuya?: boolean;
+  mizuyaResponse?: MizuyaResponse;
   cliMode?: CollaborationMode;
   outputOptions?: CommandOutputOptions;
   deps?: CommandHandlerDeps;
@@ -72,6 +75,7 @@ export async function executeCollaborationCommand(
     userRequest: options.userRequest,
     brief,
     context: options.context,
+    mizuyaResponse: options.mizuyaResponse ?? deps.mizuyaResponse,
     cwd: deps.cwd,
     env: deps.env,
     skipMizuya: options.useMizuya === false,

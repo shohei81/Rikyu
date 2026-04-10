@@ -146,6 +146,34 @@ describe("runCollaborationFlow", () => {
     expect(result).toMatchObject({ degraded: false, output: "Unified review" });
   });
 
+  it("can reuse an existing mizuya response without running mizuya again", async () => {
+    let mizuyaCalled = false;
+    let teishuPrompt = "";
+    const mizuyaRunner: MizuyaRunner = async () => {
+      mizuyaCalled = true;
+      return providerResult("codex", mizuyaResponse);
+    };
+    const teishuRunner: TeishuRunner = async (prompt) => {
+      teishuPrompt = prompt;
+      return providerResult("claude", teishuResponse);
+    };
+
+    const result = await runCollaborationFlow({
+      requestId: "req-cached",
+      userRequest: "Plan a fix",
+      brief: { task: "fix", target: "question", desiredOutcome: "fix-plan" },
+      skipMizuya: true,
+      mizuyaResponse,
+      mizuyaRunner,
+      teishuRunner,
+    });
+
+    expect(mizuyaCalled).toBe(false);
+    expect(teishuPrompt).toContain('"summary": "Mizuya summary"');
+    expect(teishuPrompt).toContain("treat findings as constraints");
+    expect(result).toMatchObject({ degraded: false, output: "Unified review", mizuyaResponse });
+  });
+
   it("runs a follow-up mizuya turn when teishu asks for more in standard mode", async () => {
     const mizuyaRequests: string[] = [];
     const teishuPrompts: string[] = [];

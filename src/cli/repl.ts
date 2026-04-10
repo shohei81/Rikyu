@@ -4,6 +4,8 @@ import type { Readable, Writable } from "node:stream";
 
 import { collectStatus } from "../status/checks.js";
 import { formatStatusReport } from "../status/format.js";
+import type { CollaborationResult } from "../collaboration/flow.js";
+import type { MizuyaResponse } from "../mizuya/schema.js";
 import {
   classifySessionBrief,
   shouldUseMizuyaForTask,
@@ -34,6 +36,7 @@ export interface ReplState {
   sessionId: string;
   exit: boolean;
   lastBrief?: SessionBrief;
+  lastMizuyaResponse?: MizuyaResponse;
 }
 
 export interface HandleReplInputOptions {
@@ -97,16 +100,20 @@ export async function handleReplInput(options: HandleReplInputOptions): Promise<
   options.state.lastBrief = brief;
 
   if (!shouldUseMizuyaForTask(brief.task)) {
-    io.stdout("Fix flow is not implemented in Phase 0. Use review or ask for now.\n");
-    await persistTurn(options.state, deps, brief);
+    const result = await handleFixCommand({
+      prompt: parsed.text,
+      deps: withSessionDeps(options.state, deps, { mizuyaResponse: options.state.lastMizuyaResponse }),
+    });
+    rememberMizuyaResponse(options.state, result);
     return options.state;
   }
 
-  await executeCollaborationCommand({
+  const result = await executeCollaborationCommand({
     userRequest: parsed.text,
     brief,
     deps: withSessionDeps(options.state, deps),
   });
+  rememberMizuyaResponse(options.state, result);
   return options.state;
 }
 
@@ -133,24 +140,39 @@ async function handleSlashCommand(
       io.stdout("Bye.\n");
       return state;
     case "review":
-      await handleReviewCommand({ prompt: parsed.prompt, deps: withSessionDeps(state, deps) });
+      rememberMizuyaResponse(
+        state,
+        await handleReviewCommand({ prompt: parsed.prompt, deps: withSessionDeps(state, deps) }),
+      );
       return state;
     case "ask":
       if (!parsed.prompt) {
         io.stderr("/ask requires a prompt in Phase 0.\n");
         return state;
       }
-      await handleAskCommand({ question: parsed.prompt, deps: withSessionDeps(state, deps) });
+      rememberMizuyaResponse(
+        state,
+        await handleAskCommand({ question: parsed.prompt, deps: withSessionDeps(state, deps) }),
+      );
       return state;
     case "debug":
       if (!parsed.prompt) {
         io.stderr("/debug requires a prompt.\n");
         return state;
       }
-      await handleDebugCommand({ symptom: parsed.prompt, deps: withSessionDeps(state, deps) });
+      rememberMizuyaResponse(
+        state,
+        await handleDebugCommand({ symptom: parsed.prompt, deps: withSessionDeps(state, deps) }),
+      );
       return state;
     case "fix":
-      await handleFixCommand({ prompt: parsed.prompt, deps: withSessionDeps(state, deps) });
+      rememberMizuyaResponse(
+        state,
+        await handleFixCommand({
+          prompt: parsed.prompt,
+          deps: withSessionDeps(state, deps, { mizuyaResponse: state.lastMizuyaResponse }),
+        }),
+      );
       return state;
     case "sessions":
       await printSessions(deps);
@@ -195,30 +217,27 @@ async function resumeSession(options: {
   const snapshot = await loader(sessionId, { cwd: options.deps.cwd });
   options.state.sessionId = snapshot.sessionId;
   options.state.lastBrief = snapshot.brief;
+  options.state.lastMizuyaResponse = snapshot.mizuyaResponses.at(-1);
   io.stdout(`Resumed ${snapshot.sessionId} (${snapshot.brief.task}).\n`);
 }
 
-async function persistTurn(
+function withSessionDeps(
   state: ReplState,
   deps: ReplDeps,
-  brief: SessionBrief,
-): Promise<void> {
-  await (deps.saveSessionSnapshot ?? saveSessionSnapshot)(
-    {
-      sessionId: state.sessionId,
-      brief,
-      metadata: { lastTask: brief.task },
-    },
-    { cwd: deps.cwd },
-  );
-}
-
-function withSessionDeps(state: ReplState, deps: ReplDeps): ReplDeps {
+  options: { mizuyaResponse?: MizuyaResponse } = {},
+): ReplDeps {
   return {
     ...deps,
     sessionId: state.sessionId,
+    ...(options.mizuyaResponse ? { mizuyaResponse: options.mizuyaResponse } : {}),
     saveSessionSnapshot: deps.saveSessionSnapshot ?? saveSessionSnapshot,
   };
+}
+
+function rememberMizuyaResponse(state: ReplState, result: CollaborationResult): void {
+  if (result.mizuyaResponse) {
+    state.lastMizuyaResponse = result.mizuyaResponse;
+  }
 }
 
 function formatSessionLine(session: SessionSnapshot): string {

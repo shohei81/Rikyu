@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { handleReplInput, type ReplDeps, type ReplState } from "../src/cli/repl.js";
 import type { CollaborationResult, RunCollaborationFlowInput } from "../src/collaboration/flow.js";
 import type { RikyuConfig } from "../src/config/schema.js";
+import type { MizuyaResponse } from "../src/mizuya/schema.js";
 import type { SessionBrief } from "../src/session/brief.js";
 import type { SessionSnapshot, SessionSnapshotInput } from "../src/session/store.js";
 import type { RikyuStatusReport } from "../src/status/checks.js";
@@ -12,6 +13,22 @@ const config: RikyuConfig = {
   verbose: false,
   json: false,
   progress: false,
+};
+
+const mizuyaResponse: MizuyaResponse = {
+  requestId: "req-1",
+  findings: [
+    {
+      ruleId: "review.finding",
+      level: "warning",
+      message: "Check this before fixing.",
+      evidence: ["diff"],
+      confidence: "high",
+    },
+  ],
+  summary: "Review cache",
+  doubts: [],
+  contextUsed: ["diff"],
 };
 
 describe("handleReplInput", () => {
@@ -89,6 +106,33 @@ describe("handleReplInput", () => {
     expect(stdout).toEqual(["Debug output\n", "Debug output\n"]);
   });
 
+  it("reuses the previous review mizuya response for slash fix", async () => {
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const state = replState();
+    const deps = createDeps({
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        if (input.brief.task === "review") {
+          return result("Review output", { mizuyaResponse });
+        }
+        return result("Fix output", { mizuyaResponse: input.mizuyaResponse });
+      },
+    });
+
+    await handleReplInput({ line: "/review focus on errors", state, deps });
+    await handleReplInput({ line: "/fix fix those findings", state, deps });
+
+    expect(flowInputs[0]).toMatchObject({
+      brief: { task: "review" },
+    });
+    expect(flowInputs[1]).toMatchObject({
+      brief: { task: "fix" },
+      skipMizuya: true,
+      mizuyaResponse,
+    });
+    expect(state.lastMizuyaResponse).toEqual(mizuyaResponse);
+  });
+
   it("requires a prompt for slash debug", async () => {
     const stderr: string[] = [];
     const deps = createDeps({ stderr: (text) => stderr.push(text) });
@@ -101,7 +145,9 @@ describe("handleReplInput", () => {
   it("shows sessions and resumes a saved session", async () => {
     const stdout: string[] = [];
     const state = replState();
-    const snapshot = sessionSnapshot("session-2", { task: "review", target: "working-tree" });
+    const snapshot = sessionSnapshot("session-2", { task: "review", target: "working-tree" }, [
+      mizuyaResponse,
+    ]);
     const deps = createDeps({
       stdout: (text) => stdout.push(text),
       listSessionSnapshots: async () => [snapshot],
@@ -114,6 +160,7 @@ describe("handleReplInput", () => {
     expect(stdout.join("")).toContain("session-2\treview");
     expect(stdout).toContain("Resumed session-2 (review).\n");
     expect(state.sessionId).toBe("session-2");
+    expect(state.lastMizuyaResponse).toEqual(mizuyaResponse);
   });
 
   it("shows status", async () => {
@@ -153,16 +200,16 @@ describe("handleReplInput", () => {
     });
   });
 
-  it("does not run mizuya flow for natural fix requests", async () => {
+  it("runs natural fix requests without a new mizuya turn", async () => {
     const stdout: string[] = [];
     const saved: SessionSnapshotInput[] = [];
-    let flowCalled = false;
+    const flowInputs: RunCollaborationFlowInput[] = [];
     const deps = createDeps({
       stdout: (text) => stdout.push(text),
       classifySessionBrief: () => ({ task: "fix", target: "question", intent: "fix this" }),
-      runFlow: async () => {
-        flowCalled = true;
-        return result("Should not happen");
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Fix plan");
       },
       saveSessionSnapshot: async (input) => {
         saved.push(input);
@@ -172,8 +219,11 @@ describe("handleReplInput", () => {
 
     await handleReplInput({ line: "fix this", state: replState(), deps });
 
-    expect(flowCalled).toBe(false);
-    expect(stdout).toEqual(["Fix flow is not implemented in Phase 0. Use review or ask for now.\n"]);
+    expect(flowInputs[0]).toMatchObject({
+      brief: { task: "fix" },
+      skipMizuya: true,
+    });
+    expect(stdout).toEqual(["Fix plan\n"]);
     expect(saved[0]?.brief.task).toBe("fix");
   });
 
@@ -228,21 +278,29 @@ function replState(): ReplState {
   };
 }
 
-function result(output: string): CollaborationResult {
+function result(
+  output: string,
+  overrides: Partial<CollaborationResult> = {},
+): CollaborationResult {
   return {
     requestId: "req-1",
     output,
     teishuResponse: { output, needsMoreFromMizuya: false },
     degraded: false,
     stderr: [],
+    ...overrides,
   };
 }
 
-function sessionSnapshot(sessionId: string, brief: SessionBrief): SessionSnapshot {
+function sessionSnapshot(
+  sessionId: string,
+  brief: SessionBrief,
+  mizuyaResponses: MizuyaResponse[] = [],
+): SessionSnapshot {
   return {
     sessionId,
     brief,
-    mizuyaResponses: [],
+    mizuyaResponses,
     metadata: {
       createdAt: "2026-04-10T00:00:00.000Z",
       updatedAt: "2026-04-10T00:00:00.000Z",
