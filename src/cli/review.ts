@@ -3,10 +3,11 @@ import type { Command } from "commander";
 import { loadRikyuConfig } from "../config/loader.js";
 import { collectSessionContext, type CollectSessionContextOptions } from "../session/context.js";
 import type { SessionBrief } from "../session/brief.js";
+import { modeFromFlags, type ModeFlagOptions } from "../session/mode.js";
 import { executeCollaborationCommand, type CommandHandlerDeps } from "./common.js";
 import { createProgressReporter } from "../output/streaming.js";
 
-export interface ReviewCommandOptions {
+export interface ReviewCommandOptions extends ModeFlagOptions {
   staged?: boolean;
 }
 
@@ -25,6 +26,8 @@ export function registerReviewCommand(program: Command): void {
     .description("Review the current working tree or a target path.")
     .argument("[target]", "Optional path to review")
     .option("--staged", "Review staged changes")
+    .option("--quick", "Use quick collaboration mode")
+    .option("--deep", "Use deep collaboration mode")
     .action(async (target: string | undefined, options: ReviewCommandOptions) => {
       await handleReviewCommand({ target, options });
     });
@@ -54,6 +57,7 @@ export async function handleReviewCommand(input: HandleReviewCommandInput = {}) 
     context: context.blocks,
     config,
     progress,
+    cliMode: modeFromFlags(input.options),
     deps,
   });
 }

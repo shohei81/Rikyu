@@ -10,6 +10,7 @@ import { runCollaborationFlow } from "../collaboration/flow.js";
 import { loadRikyuConfig } from "../config/loader.js";
 import { createProgressReporter, type ProgressReporter } from "../output/streaming.js";
 import { writeTextOutput } from "../output/text.js";
+import { resolveCollaborationMode } from "../session/mode.js";
 import { saveSessionSnapshot } from "../session/store.js";
 
 export interface CommandIo {
@@ -36,6 +37,7 @@ export interface ExecuteCommandOptions {
   config?: RikyuConfig;
   progress?: ProgressReporter;
   useMizuya?: boolean;
+  cliMode?: CollaborationMode;
   deps?: CommandHandlerDeps;
 }
 
@@ -52,7 +54,7 @@ export async function executeCollaborationCommand(
     (deps.createProgressReporter
     ? deps.createProgressReporter(config.progress)
       : createProgressReporter({ enabled: config.progress, writer: io.stderr }));
-  const brief = applyConfigMode(options.brief, config);
+  const brief = applyConfigMode(options.brief, config, options.cliMode);
 
   progress.stage("mizuya");
   const result = await (deps.runFlow ?? runCollaborationFlow)({
@@ -90,11 +92,14 @@ export async function executeCollaborationCommand(
   return result;
 }
 
-export function applyConfigMode(brief: SessionBrief, config: RikyuConfig): SessionBrief {
-  if (config.mode === "auto") return brief;
+export function applyConfigMode(
+  brief: SessionBrief,
+  config: RikyuConfig,
+  cliMode?: CollaborationMode,
+): SessionBrief {
   return {
     ...brief,
-    mode: config.mode as CollaborationMode,
+    mode: resolveCollaborationMode({ brief, configMode: config.mode, cliMode }),
   };
 }
 

@@ -98,6 +98,21 @@ describe("handleReviewCommand", () => {
 
     expect(progressStages).toEqual([]);
   });
+
+  it("auto-selects standard mode when config mode is auto", async () => {
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const deps = createDeps({
+      config: { ...baseConfig, mode: "auto" },
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Review output");
+      },
+    });
+
+    await handleReviewCommand({ deps });
+
+    expect(flowInputs[0]?.brief.mode).toBe("standard");
+  });
 });
 
 describe("handleAskCommand", () => {
@@ -141,6 +156,21 @@ describe("handleAskCommand", () => {
     expect(stderr).toContain("requestId=req-test\n");
     expect(stderr).toContain("degraded=true\n");
     expect(stderr).toContain("degradedReason=codex:ENOENT\n");
+  });
+
+  it("lets CLI mode flags override config", async () => {
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const deps = createDeps({
+      config: { ...baseConfig, mode: "standard" },
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Ask output");
+      },
+    });
+
+    await handleAskCommand({ question: "What is Rikyu?", options: { deep: true }, deps });
+
+    expect(flowInputs[0]?.brief.mode).toBe("deep");
   });
 });
 
