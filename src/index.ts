@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { registerAskCommand } from "./cli/ask.js";
 import { registerConfigCommand } from "./cli/config.js";
 import { registerDebugCommand } from "./cli/debug.js";
+import { registerFixCommand } from "./cli/fix.js";
 import { runRepl } from "./cli/repl.js";
 import { registerReviewCommand } from "./cli/review.js";
 import { registerStatusCommand } from "./cli/status.js";
@@ -20,6 +21,7 @@ program
 registerStatusCommand(program);
 registerAskCommand(program);
 registerDebugCommand(program);
+registerFixCommand(program);
 registerReviewCommand(program);
 registerConfigCommand(program);
 

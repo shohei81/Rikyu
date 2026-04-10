@@ -68,7 +68,7 @@ describe("handleReplInput", () => {
     });
   });
 
-  it("runs slash debug and keeps fix as a stub", async () => {
+  it("runs slash debug and fix", async () => {
     const stdout: string[] = [];
     const flowInputs: RunCollaborationFlowInput[] = [];
     const deps = createDeps({
@@ -84,7 +84,9 @@ describe("handleReplInput", () => {
 
     expect(flowInputs[0]?.brief.task).toBe("debug");
     expect(flowInputs[0]?.userRequest).toBe("crash");
-    expect(stdout).toEqual(["Debug output\n", "Fix is not implemented in Phase 0.\n"]);
+    expect(flowInputs[1]?.brief.task).toBe("fix");
+    expect(flowInputs[1]?.skipMizuya).toBe(true);
+    expect(stdout).toEqual(["Debug output\n", "Debug output\n"]);
   });
 
   it("requires a prompt for slash debug", async () => {

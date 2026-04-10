@@ -120,6 +120,32 @@ describe("runCollaborationFlow", () => {
     });
   });
 
+  it("can skip mizuya for tasks that should go directly to teishu", async () => {
+    let mizuyaCalled = false;
+    let teishuPrompt = "";
+    const mizuyaRunner: MizuyaRunner = async () => {
+      mizuyaCalled = true;
+      return providerResult("codex", mizuyaResponse);
+    };
+    const teishuRunner: TeishuRunner = async (prompt) => {
+      teishuPrompt = prompt;
+      return providerResult("claude", teishuResponse);
+    };
+
+    const result = await runCollaborationFlow({
+      requestId: "req-skip",
+      userRequest: "Plan a fix",
+      brief: { task: "fix", target: "question", desiredOutcome: "fix-plan" },
+      skipMizuya: true,
+      mizuyaRunner,
+      teishuRunner,
+    });
+
+    expect(mizuyaCalled).toBe(false);
+    expect(teishuPrompt).toContain("No mizuya response was requested");
+    expect(result).toMatchObject({ degraded: false, output: "Unified review" });
+  });
+
   it("throws when injected runners do not return parsed data", async () => {
     const mizuyaRunner: MizuyaRunner = async () => ({
       provider: "codex",

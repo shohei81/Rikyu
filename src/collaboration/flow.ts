@@ -38,6 +38,7 @@ export interface RunCollaborationFlowInput {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  skipMizuya?: boolean;
   mizuyaRunner?: MizuyaRunner;
   teishuRunner?: TeishuRunner;
   degradedStderrLogger?: DegradedStderrLogger;
@@ -61,22 +62,25 @@ export async function runCollaborationFlow(
   let mizuyaResponse: MizuyaResponse | undefined;
   let degradedInfo: DegradedInfo | undefined;
 
-  try {
-    const mizuyaPrompt = buildMizuyaPrompt(toMizuyaPromptInput(input));
-    const mizuyaResult = await mizuya(mizuyaPrompt, input);
-    mizuyaResponse = requireParsedResult("codex", mizuyaResult);
-  } catch (error) {
-    degradedInfo = createDegradedInfo(error);
-    logDegradedStderr(
-      degradedInfo,
-      input.degradedStderrLogger ?? defaultDegradedStderrLogger,
-    );
+  if (!input.skipMizuya) {
+    try {
+      const mizuyaPrompt = buildMizuyaPrompt(toMizuyaPromptInput(input));
+      const mizuyaResult = await mizuya(mizuyaPrompt, input);
+      mizuyaResponse = requireParsedResult("codex", mizuyaResult);
+    } catch (error) {
+      degradedInfo = createDegradedInfo(error);
+      logDegradedStderr(
+        degradedInfo,
+        input.degradedStderrLogger ?? defaultDegradedStderrLogger,
+      );
+    }
   }
 
   const teishuPrompt = buildTeishuPrompt({
     userRequest: input.userRequest,
     brief: input.brief,
     mizuyaResponse,
+    mizuyaSkipped: input.skipMizuya,
   });
   const teishuResult = await teishu(teishuPrompt, input);
   const teishuResponse = requireParsedResult("claude", teishuResult);

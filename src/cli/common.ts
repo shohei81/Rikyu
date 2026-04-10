@@ -35,6 +35,7 @@ export interface ExecuteCommandOptions {
   context?: RunCollaborationFlowInput["context"];
   config?: RikyuConfig;
   progress?: ProgressReporter;
+  useMizuya?: boolean;
   deps?: CommandHandlerDeps;
 }
 
@@ -61,6 +62,7 @@ export async function executeCollaborationCommand(
     context: options.context,
     cwd: deps.cwd,
     env: deps.env,
+    skipMizuya: options.useMizuya === false,
     degradedStderrLogger: (line) => io.stderr(`${line}\n`),
   });
 

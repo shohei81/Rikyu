@@ -6,13 +6,12 @@ export interface BuildTeishuPromptInput {
   userRequest: string;
   brief: SessionBrief;
   mizuyaResponse?: MizuyaResponse;
+  mizuyaSkipped?: boolean;
   followUpQuestion?: string;
 }
 
 export function buildTeishuPrompt(input: BuildTeishuPromptInput): string {
-  const mizuyaBlock = input.mizuyaResponse
-    ? renderMizuyaResponseBlock(input.brief, input.mizuyaResponse)
-    : "<mizuya-response>No mizuya response is available. Continue in degraded mode.</mizuya-response>";
+  const mizuyaBlock = renderMizuyaBlock(input);
 
   return [
     "You are teishu for Rikyu. Produce Rikyu's single unified response to the user.",
@@ -33,6 +32,14 @@ export function buildTeishuPrompt(input: BuildTeishuPromptInput): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function renderMizuyaBlock(input: BuildTeishuPromptInput): string {
+  if (input.mizuyaResponse) return renderMizuyaResponseBlock(input.brief, input.mizuyaResponse);
+  if (input.mizuyaSkipped) {
+    return "<mizuya-response>No mizuya response was requested for this task.</mizuya-response>";
+  }
+  return "<mizuya-response>No mizuya response is available. Continue in degraded mode.</mizuya-response>";
 }
 
 function renderMizuyaResponseBlock(brief: SessionBrief, response: MizuyaResponse): string {

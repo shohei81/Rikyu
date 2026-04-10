@@ -121,6 +121,17 @@ describe("buildTeishuPrompt", () => {
     expect(prompt).toContain("Continue in degraded mode");
   });
 
+  it("has skipped-mizuya wording when mizuya is intentionally skipped", () => {
+    const prompt = buildTeishuPrompt({
+      userRequest: "Plan a fix",
+      brief: { task: "fix", target: "question", desiredOutcome: "fix-plan" },
+      mizuyaSkipped: true,
+    });
+
+    expect(prompt).toContain("No mizuya response was requested");
+    expect(prompt).not.toContain("Continue in degraded mode");
+  });
+
   it("uses debug-specific guidance for debug tasks", () => {
     const prompt = buildTeishuPrompt({
       userRequest: "Debug a failing test",

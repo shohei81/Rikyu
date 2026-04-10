@@ -18,6 +18,7 @@ import {
 import { executeCollaborationCommand, type CommandHandlerDeps, type CommandIo } from "./common.js";
 import { handleAskCommand } from "./ask.js";
 import { handleDebugCommand } from "./debug.js";
+import { handleFixCommand } from "./fix.js";
 import { handleReviewCommand } from "./review.js";
 import { parseSlashCommand, slashHelpText, type SlashParseResult } from "./slash.js";
 
@@ -149,7 +150,7 @@ async function handleSlashCommand(
       await handleDebugCommand({ symptom: parsed.prompt, deps: withSessionDeps(state, deps) });
       return state;
     case "fix":
-      io.stdout("Fix is not implemented in Phase 0.\n");
+      await handleFixCommand({ prompt: parsed.prompt, deps: withSessionDeps(state, deps) });
       return state;
     case "sessions":
       await printSessions(deps);

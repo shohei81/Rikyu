@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { handleAskCommand } from "../src/cli/ask.js";
 import { handleDebugCommand } from "../src/cli/debug.js";
+import { handleFixCommand } from "../src/cli/fix.js";
 import { handleReviewCommand } from "../src/cli/review.js";
 import type { CommandHandlerDeps } from "../src/cli/common.js";
 import type { CollaborationResult, RunCollaborationFlowInput } from "../src/collaboration/flow.js";
@@ -167,6 +168,47 @@ describe("handleDebugCommand", () => {
       },
     });
     expect(stdout).toEqual(["Debug output\n"]);
+  });
+});
+
+describe("handleFixCommand", () => {
+  it("routes fix plan without mizuya", async () => {
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const deps = createDeps({
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Fix plan");
+      },
+    });
+
+    await handleFixCommand({ target: "src/app.ts", options: { plan: true }, deps });
+
+    expect(flowInputs[0]).toMatchObject({
+      brief: {
+        task: "fix",
+        target: "file",
+        focus: ["src/app.ts"],
+        desiredOutcome: "fix-plan",
+        mode: "quick",
+      },
+      skipMizuya: true,
+    });
+    expect(flowInputs[0]?.userRequest).toContain("Desired outcome: fix-plan.");
+  });
+
+  it("routes fix patch and apply modes", async () => {
+    const outcomes: unknown[] = [];
+    const deps = createDeps({
+      runFlow: async (input) => {
+        outcomes.push(input.brief.desiredOutcome);
+        return result("Fix output");
+      },
+    });
+
+    await handleFixCommand({ options: { patch: true }, deps });
+    await handleFixCommand({ options: { apply: true }, deps });
+
+    expect(outcomes).toEqual(["patch-proposal", "apply"]);
   });
 });
 
