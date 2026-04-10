@@ -20,6 +20,7 @@ export function registerAskCommand(program: Command): void {
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
     .option("--json", "Write machine-readable JSON output")
+    .option("--sarif", "Write SARIF v2.1.0 output")
     .option("--verbose", "Write verbose diagnostic output")
     .action(async (question: string, options: AskCommandOptions) => {
       await handleAskCommand({ question, options });

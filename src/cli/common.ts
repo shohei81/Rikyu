@@ -11,6 +11,7 @@ import { runCollaborationFlow } from "../collaboration/flow.js";
 import { loadRikyuConfig } from "../config/loader.js";
 import { writeJsonOutput } from "../output/json.js";
 import { redactSecrets } from "../output/redaction.js";
+import { writeSarifOutput } from "../output/sarif.js";
 import { createProgressReporter, type ProgressReporter } from "../output/streaming.js";
 import { writeTextOutput } from "../output/text.js";
 import { resolveCollaborationMode } from "../session/mode.js";
@@ -36,6 +37,7 @@ export interface CommandHandlerDeps {
 
 export interface CommandOutputOptions {
   json?: boolean;
+  sarif?: boolean;
   verbose?: boolean;
 }
 
@@ -99,7 +101,9 @@ export async function executeCollaborationCommand(
   }
 
   if (!options.suppressOutput) {
-    if (outputConfig.json) {
+    if (options.outputOptions?.sarif) {
+      writeSarifOutput(result, io.stdout);
+    } else if (outputConfig.json) {
       writeJsonOutput(result, { brief, sessionId: deps.sessionId, totalMs: Date.now() - startedAt }, io.stdout);
     } else {
       writeTextOutput(result, io.stdout);

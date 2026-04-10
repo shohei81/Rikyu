@@ -116,6 +116,26 @@ describe("handleReviewCommand", () => {
 
     expect(flowInputs[0]?.brief.mode).toBe("standard");
   });
+
+  it("writes SARIF output when requested by CLI flag", async () => {
+    const stdout: string[] = [];
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      runFlow: async () =>
+        result("Review output", {
+          mizuyaResponse: mizuyaResponse([finding("rikyu.rule", "Rule message")]),
+        }),
+    });
+
+    await handleReviewCommand({ options: { sarif: true }, deps });
+
+    const parsed = JSON.parse(stdout.join(""));
+    expect(parsed.version).toBe("2.1.0");
+    expect(parsed.runs[0].results[0]).toMatchObject({
+      ruleId: "rikyu.rule",
+      message: { text: "Rule message" },
+    });
+  });
 });
 
 describe("handleAskCommand", () => {
