@@ -8,6 +8,8 @@ import type {
 } from "../collaboration/flow.js";
 import { runCollaborationFlow } from "../collaboration/flow.js";
 import { loadRikyuConfig } from "../config/loader.js";
+import { writeJsonOutput } from "../output/json.js";
+import { redactSecrets } from "../output/redaction.js";
 import { createProgressReporter, type ProgressReporter } from "../output/streaming.js";
 import { writeTextOutput } from "../output/text.js";
 import { resolveCollaborationMode } from "../session/mode.js";
@@ -30,6 +32,11 @@ export interface CommandHandlerDeps {
   saveSessionSnapshot?: typeof saveSessionSnapshot;
 }
 
+export interface CommandOutputOptions {
+  json?: boolean;
+  verbose?: boolean;
+}
+
 export interface ExecuteCommandOptions {
   userRequest: string;
   brief: SessionBrief;
@@ -38,6 +45,7 @@ export interface ExecuteCommandOptions {
   progress?: ProgressReporter;
   useMizuya?: boolean;
   cliMode?: CollaborationMode;
+  outputOptions?: CommandOutputOptions;
   deps?: CommandHandlerDeps;
 }
 
@@ -49,12 +57,14 @@ export async function executeCollaborationCommand(
   const config =
     options.config ??
     (deps.loadConfig ? await deps.loadConfig() : (await loadRikyuConfig({ cwd: deps.cwd })).config);
+  const outputConfig = applyOutputOptions(config, options.outputOptions);
+  const startedAt = Date.now();
   const progress =
     options.progress ??
     (deps.createProgressReporter
-    ? deps.createProgressReporter(config.progress)
-      : createProgressReporter({ enabled: config.progress, writer: io.stderr }));
-  const brief = applyConfigMode(options.brief, config, options.cliMode);
+    ? deps.createProgressReporter(outputConfig.progress)
+      : createProgressReporter({ enabled: outputConfig.progress, writer: io.stderr }));
+  const brief = applyConfigMode(options.brief, outputConfig, options.cliMode);
 
   progress.stage("mizuya");
   const result = await (deps.runFlow ?? runCollaborationFlow)({
@@ -83,13 +93,25 @@ export async function executeCollaborationCommand(
     );
   }
 
-  writeTextOutput(result, io.stdout);
-  if (config.verbose) {
-    writeVerboseResult(result, io.stderr);
+  if (outputConfig.json) {
+    writeJsonOutput(result, { brief, sessionId: deps.sessionId, totalMs: Date.now() - startedAt }, io.stdout);
+  } else {
+    writeTextOutput(result, io.stdout);
+  }
+  if (outputConfig.verbose) {
+    writeVerboseResult(result, io.stderr, brief);
   }
   progress.stage("done");
 
   return result;
+}
+
+export function applyOutputOptions(config: RikyuConfig, options: CommandOutputOptions | undefined): RikyuConfig {
+  return {
+    ...config,
+    ...(options?.json === undefined ? {} : { json: options.json }),
+    ...(options?.verbose === undefined ? {} : { verbose: options.verbose }),
+  };
 }
 
 export function applyConfigMode(
@@ -103,10 +125,16 @@ export function applyConfigMode(
   };
 }
 
-function writeVerboseResult(result: CollaborationResult, stderr: (text: string) => void): void {
+function writeVerboseResult(
+  result: CollaborationResult,
+  stderr: (text: string) => void,
+  brief: SessionBrief,
+): void {
   stderr(`requestId=${result.requestId}\n`);
+  stderr(`mode=${brief.mode ?? "unknown"}\n`);
   stderr(`degraded=${String(result.degraded)}\n`);
-  if (result.degradedReason) stderr(`degradedReason=${result.degradedReason}\n`);
+  stderr(`mizuyaFindings=${String(result.mizuyaResponse?.findings.length ?? 0)}\n`);
+  if (result.degradedReason) stderr(`degradedReason=${redactSecrets(result.degradedReason)}\n`);
 }
 
 const defaultIo: CommandIo = {

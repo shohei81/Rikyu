@@ -1,11 +1,12 @@
 import type { CollaborationResult } from "../collaboration/flow.js";
+import { redactSecrets } from "./redaction.js";
 
 export interface TextOutputInput {
   output: string;
 }
 
 export function renderTextOutput(input: TextOutputInput | CollaborationResult): string {
-  return ensureTrailingNewline(input.output);
+  return ensureTrailingNewline(redactSecrets(input.output));
 }
 
 export function writeTextOutput(

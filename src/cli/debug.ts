@@ -2,11 +2,13 @@ import type { Command } from "commander";
 
 import { modeFromFlags, type ModeFlagOptions } from "../session/mode.js";
 import type { SessionBrief } from "../session/brief.js";
-import { executeCollaborationCommand, type CommandHandlerDeps } from "./common.js";
+import { executeCollaborationCommand, type CommandHandlerDeps, type CommandOutputOptions } from "./common.js";
+
+export interface DebugCommandOptions extends ModeFlagOptions, CommandOutputOptions {}
 
 export interface HandleDebugCommandInput {
   symptom: string;
-  options?: ModeFlagOptions;
+  options?: DebugCommandOptions;
   deps?: CommandHandlerDeps;
 }
 
@@ -17,7 +19,9 @@ export function registerDebugCommand(program: Command): void {
     .argument("<symptom>", "Symptom to debug")
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
-    .action(async (symptom: string, options: ModeFlagOptions) => {
+    .option("--json", "Write machine-readable JSON output")
+    .option("--verbose", "Write verbose diagnostic output")
+    .action(async (symptom: string, options: DebugCommandOptions) => {
       await handleDebugCommand({ symptom, options });
     });
 }
@@ -33,6 +37,7 @@ export async function handleDebugCommand(input: HandleDebugCommandInput) {
     userRequest: input.symptom,
     brief,
     cliMode: modeFromFlags(input.options),
+    outputOptions: input.options,
     deps: input.deps,
   });
 }

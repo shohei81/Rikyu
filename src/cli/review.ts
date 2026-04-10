@@ -4,10 +4,15 @@ import { loadRikyuConfig } from "../config/loader.js";
 import { collectSessionContext, type CollectSessionContextOptions } from "../session/context.js";
 import type { SessionBrief } from "../session/brief.js";
 import { modeFromFlags, type ModeFlagOptions } from "../session/mode.js";
-import { executeCollaborationCommand, type CommandHandlerDeps } from "./common.js";
+import {
+  applyOutputOptions,
+  executeCollaborationCommand,
+  type CommandHandlerDeps,
+  type CommandOutputOptions,
+} from "./common.js";
 import { createProgressReporter } from "../output/streaming.js";
 
-export interface ReviewCommandOptions extends ModeFlagOptions {
+export interface ReviewCommandOptions extends ModeFlagOptions, CommandOutputOptions {
   staged?: boolean;
 }
 
@@ -28,6 +33,8 @@ export function registerReviewCommand(program: Command): void {
     .option("--staged", "Review staged changes")
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
+    .option("--json", "Write machine-readable JSON output")
+    .option("--verbose", "Write verbose diagnostic output")
     .action(async (target: string | undefined, options: ReviewCommandOptions) => {
       await handleReviewCommand({ target, options });
     });
@@ -39,9 +46,10 @@ export async function handleReviewCommand(input: HandleReviewCommandInput = {}) 
     stdout: (text: string) => process.stdout.write(text),
     stderr: (text: string) => process.stderr.write(text),
   };
-  const config = deps.loadConfig
+  const loadedConfig = deps.loadConfig
     ? await deps.loadConfig()
     : (await loadRikyuConfig({ cwd: deps.cwd })).config;
+  const config = applyOutputOptions(loadedConfig, input.options);
   const progress = deps.createProgressReporter
     ? deps.createProgressReporter(config.progress)
     : createProgressReporter({ enabled: config.progress, writer: io.stderr });
@@ -58,6 +66,7 @@ export async function handleReviewCommand(input: HandleReviewCommandInput = {}) 
     config,
     progress,
     cliMode: modeFromFlags(input.options),
+    outputOptions: input.options,
     deps,
   });
 }

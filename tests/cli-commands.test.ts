@@ -154,7 +154,9 @@ describe("handleAskCommand", () => {
     await handleAskCommand({ question: "Why?", deps });
 
     expect(stderr).toContain("requestId=req-test\n");
+    expect(stderr).toContain("mode=quick\n");
     expect(stderr).toContain("degraded=true\n");
+    expect(stderr).toContain("mizuyaFindings=0\n");
     expect(stderr).toContain("degradedReason=codex:ENOENT\n");
   });
 
@@ -171,6 +173,20 @@ describe("handleAskCommand", () => {
     await handleAskCommand({ question: "What is Rikyu?", options: { deep: true }, deps });
 
     expect(flowInputs[0]?.brief.mode).toBe("deep");
+  });
+
+  it("writes JSON output when requested by CLI flag", async () => {
+    const stdout: string[] = [];
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      runFlow: async () => result("token=secret-value"),
+    });
+
+    await handleAskCommand({ question: "What is Rikyu?", options: { json: true }, deps });
+
+    const parsed = JSON.parse(stdout.join(""));
+    expect(parsed.output).toBe("token=[REDACTED]");
+    expect(parsed.task).toBe("ask");
   });
 });
 

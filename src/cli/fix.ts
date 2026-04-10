@@ -3,9 +3,9 @@ import type { Command } from "commander";
 import { estimateChangeSize, selectChangeExecutor } from "../collaboration/change-size.js";
 import type { DesiredOutcome, SessionBrief } from "../session/brief.js";
 import { modeFromFlags, type ModeFlagOptions } from "../session/mode.js";
-import { executeCollaborationCommand, type CommandHandlerDeps } from "./common.js";
+import { executeCollaborationCommand, type CommandHandlerDeps, type CommandOutputOptions } from "./common.js";
 
-export interface FixCommandOptions extends ModeFlagOptions {
+export interface FixCommandOptions extends ModeFlagOptions, CommandOutputOptions {
   plan?: boolean;
   patch?: boolean;
   apply?: boolean;
@@ -28,6 +28,8 @@ export function registerFixCommand(program: Command): void {
     .option("--apply", "Prepare an apply flow through the provider approval mechanism")
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
+    .option("--json", "Write machine-readable JSON output")
+    .option("--verbose", "Write verbose diagnostic output")
     .action(async (target: string | undefined, options: FixCommandOptions) => {
       await handleFixCommand({ target, options });
     });
@@ -59,6 +61,7 @@ export async function handleFixCommand(input: HandleFixCommandInput = {}) {
     brief,
     useMizuya: false,
     cliMode: modeFromFlags(input.options),
+    outputOptions: input.options,
     deps: input.deps,
   });
 }
