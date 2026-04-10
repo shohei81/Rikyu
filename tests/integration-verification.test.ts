@@ -175,7 +175,11 @@ function mizuyaScript(summary: string): string {
 }
 
 function teishuScript(output: string): string {
-  return `console.log(JSON.stringify({
+  return `if (process.argv.includes("--bare")) {
+  console.error("--bare should not be passed to Claude in prompt mode");
+  process.exit(1);
+}
+console.log(JSON.stringify({
   output: ${JSON.stringify(output)},
   needsMoreFromMizuya: false
 }));`;

@@ -166,7 +166,7 @@ export async function defaultTeishuRunner(
   prompt: string,
   input: RunCollaborationFlowInput,
 ): Promise<ProviderResult<TeishuResponse>> {
-  const result = await runClaudeCli(["--bare", "-p", "--output-format", "json", prompt], {
+  const result = await runClaudeCli(["-p", "--output-format", "json", prompt], {
     cwd: input.cwd,
     env: input.env,
     timeoutMs: input.timeoutMs,
