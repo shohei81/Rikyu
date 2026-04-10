@@ -32,6 +32,22 @@ describe("parseTeishuResponse", () => {
     });
   });
 
+  it("uses Claude Code envelope result text when the model does not return JSON", () => {
+    expect(
+      parseTeishuResponse(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "Plain response text.",
+        }),
+      ),
+    ).toEqual({
+      output: "Plain response text.",
+      needsMoreFromMizuya: false,
+    });
+  });
+
   it("throws ProviderError for invalid response shape", () => {
     expect(() => parseTeishuResponse('{"output":"Done"}')).toThrow(ProviderError);
   });

@@ -20,6 +20,10 @@ export function parseTeishuResponse(raw: string): TeishuResponse {
       if (nestedJsonText) {
         return teishuResponseSchema.parse(JSON.parse(nestedJsonText));
       }
+      return {
+        output: parsed.result,
+        needsMoreFromMizuya: false,
+      };
     }
 
     return teishuResponseSchema.parse(parsed);
