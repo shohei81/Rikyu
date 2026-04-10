@@ -1,0 +1,36 @@
+name: Rikyu Review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  rikyu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rikyu
+        run: npm install -g rikyu
+
+      - name: Run Rikyu SARIF review
+        run: rikyu review --ci --sarif --quiet > rikyu.sarif
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rikyu.sarif
+
+      - name: Comment on pull request
+        run: node examples/github-actions/comment-rikyu-pr.mjs rikyu.sarif
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
