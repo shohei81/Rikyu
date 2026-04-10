@@ -30,13 +30,16 @@ export interface CommandHandlerDeps {
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
   createRequestId?: () => string;
   createProgressReporter?: (enabled: boolean) => ProgressReporter;
+  setExitCode?: (code: number) => void;
   sessionId?: string;
   mizuyaResponse?: MizuyaResponse;
   saveSessionSnapshot?: typeof saveSessionSnapshot;
 }
 
 export interface CommandOutputOptions {
+  ci?: boolean;
   json?: boolean;
+  quiet?: boolean;
   sarif?: boolean;
   verbose?: boolean;
 }
@@ -63,7 +66,12 @@ export async function executeCollaborationCommand(
   const config =
     options.config ??
     (deps.loadConfig ? await deps.loadConfig() : (await loadRikyuConfig({ cwd: deps.cwd })).config);
-  const outputConfig = applyOutputOptions(config, options.outputOptions);
+  const ciMode = isCiMode(options.outputOptions, deps.env);
+  const quietMode = options.outputOptions?.quiet === true;
+  const outputConfig = {
+    ...applyOutputOptions(config, options.outputOptions),
+    ...(ciMode ? { progress: false } : {}),
+  };
   const startedAt = Date.now();
   const progress =
     options.progress ??
@@ -100,7 +108,13 @@ export async function executeCollaborationCommand(
     );
   }
 
-  if (!options.suppressOutput) {
+  if (ciMode) {
+    (deps.setExitCode ?? ((code: number) => {
+      process.exitCode = code;
+    }))(ciExitCode(result));
+  }
+
+  if (!options.suppressOutput && !shouldSuppressQuietOutput(result, quietMode)) {
     if (options.outputOptions?.sarif) {
       writeSarifOutput(result, io.stdout);
     } else if (outputConfig.json) {
@@ -146,6 +160,21 @@ function writeVerboseResult(
   stderr(`degraded=${String(result.degraded)}\n`);
   stderr(`mizuyaFindings=${String(result.mizuyaResponse?.findings.length ?? 0)}\n`);
   if (result.degradedReason) stderr(`degradedReason=${redactSecrets(result.degradedReason)}\n`);
+}
+
+function isCiMode(options: CommandOutputOptions | undefined, env: NodeJS.ProcessEnv | undefined): boolean {
+  return options?.ci === true || (env ?? process.env).CI === "true";
+}
+
+function shouldSuppressQuietOutput(result: CollaborationResult, quietMode: boolean): boolean {
+  return quietMode && (result.mizuyaResponse?.findings.length ?? 0) === 0;
+}
+
+function ciExitCode(result: CollaborationResult): number {
+  if (result.degraded) return 1;
+  return result.mizuyaResponse?.findings.some((finding) => finding.level === "error" || finding.level === "warning")
+    ? 1
+    : 0;
 }
 
 const defaultIo: CommandIo = {

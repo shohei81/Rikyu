@@ -33,7 +33,9 @@ export function registerReviewCommand(program: Command): void {
     .option("--staged", "Review staged changes")
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
+    .option("--ci", "Use CI-friendly output and exit code behavior")
     .option("--json", "Write machine-readable JSON output")
+    .option("--quiet", "Suppress output when there are no findings")
     .option("--sarif", "Write SARIF v2.1.0 output")
     .option("--verbose", "Write verbose diagnostic output")
     .action(async (target: string | undefined, options: ReviewCommandOptions) => {
@@ -51,9 +53,10 @@ export async function handleReviewCommand(input: HandleReviewCommandInput = {}) 
     ? await deps.loadConfig()
     : (await loadRikyuConfig({ cwd: deps.cwd })).config;
   const config = applyOutputOptions(loadedConfig, input.options);
+  const progressEnabled = input.options?.ci === true || (deps.env ?? process.env).CI === "true" ? false : config.progress;
   const progress = deps.createProgressReporter
-    ? deps.createProgressReporter(config.progress)
-    : createProgressReporter({ enabled: config.progress, writer: io.stderr });
+    ? deps.createProgressReporter(progressEnabled)
+    : createProgressReporter({ enabled: progressEnabled, writer: io.stderr });
   const contextOptions = toReviewContextOptions(input.target, input.options, deps.cwd);
   progress.stage("reading");
   const context = await (deps.collectContext ?? collectSessionContext)(contextOptions);

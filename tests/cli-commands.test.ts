@@ -136,6 +136,39 @@ describe("handleReviewCommand", () => {
       message: { text: "Rule message" },
     });
   });
+
+  it("sets CI exit code and disables progress when requested", async () => {
+    const progressStages: string[] = [];
+    const exitCodes: number[] = [];
+    const deps = createDeps({
+      progress: (stage) => progressStages.push(stage),
+      setExitCode: (code) => exitCodes.push(code),
+      runFlow: async () =>
+        result("Review output", {
+          mizuyaResponse: mizuyaResponse([finding("rikyu.warning", "Warning message")]),
+        }),
+    });
+
+    await handleReviewCommand({ options: { ci: true }, deps });
+
+    expect(progressStages).toEqual([]);
+    expect(exitCodes).toEqual([1]);
+  });
+
+  it("suppresses quiet output when there are no findings", async () => {
+    const stdout: string[] = [];
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      runFlow: async () =>
+        result("No findings", {
+          mizuyaResponse: mizuyaResponse([]),
+        }),
+    });
+
+    await handleReviewCommand({ options: { quiet: true }, deps });
+
+    expect(stdout).toEqual([]);
+  });
 });
 
 describe("handleAskCommand", () => {
@@ -210,6 +243,22 @@ describe("handleAskCommand", () => {
     const parsed = JSON.parse(stdout.join(""));
     expect(parsed.output).toBe("token=[REDACTED]");
     expect(parsed.task).toBe("ask");
+  });
+
+  it("auto-detects CI=true and sets a zero exit code when there are no findings", async () => {
+    const exitCodes: number[] = [];
+    const deps = createDeps({
+      env: { CI: "true" },
+      setExitCode: (code) => exitCodes.push(code),
+      runFlow: async () =>
+        result("No findings", {
+          mizuyaResponse: mizuyaResponse([]),
+        }),
+    });
+
+    await handleAskCommand({ question: "CI?", deps });
+
+    expect(exitCodes).toEqual([0]);
   });
 });
 
@@ -365,9 +414,11 @@ describe("handleFixCommand", () => {
 
 function createDeps(options: {
   config?: RikyuConfig;
+  env?: NodeJS.ProcessEnv;
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   progress?: (stage: string) => void;
+  setExitCode?: (code: number) => void;
   collectContext?: Parameters<typeof handleReviewCommand>[0]["deps"] extends infer D
     ? D extends { collectContext?: infer C }
       ? C
@@ -385,12 +436,14 @@ function createDeps(options: {
   const config = options.config ?? baseConfig;
   return {
     cwd: "/repo",
+    env: options.env,
     io: {
       stdout: options.stdout ?? (() => undefined),
       stderr: options.stderr ?? (() => undefined),
     },
     loadConfig: async () => config,
     createRequestId: () => "req-test",
+    setExitCode: options.setExitCode,
     mizuyaResponse: options.mizuyaResponse,
     recordRollbackSnapshot:
       options.recordRollbackSnapshot ??

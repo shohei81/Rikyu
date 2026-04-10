@@ -45,7 +45,9 @@ export function registerFixCommand(program: Command): void {
     .option("--apply", "Prepare an apply flow through the provider approval mechanism")
     .option("--quick", "Use quick collaboration mode")
     .option("--deep", "Use deep collaboration mode")
+    .option("--ci", "Use CI-friendly output and exit code behavior")
     .option("--json", "Write machine-readable JSON output")
+    .option("--quiet", "Suppress output when there are no findings")
     .option("--sarif", "Write SARIF v2.1.0 output")
     .option("--verbose", "Write verbose diagnostic output")
     .action(async (target: string | undefined, options: FixCommandOptions) => {
