@@ -52,6 +52,7 @@ function taskSpecificInstruction(task: SessionTask): string {
         "Task handling:",
         "- Treat findings as hypotheses, suspicious locations, or concrete confirmation steps.",
         "- Use evidence for symptoms, logs, code paths, and observed behavior.",
+        "- Structure summary as symptom, leading hypotheses, and next confirmation steps.",
       ].join("\n");
     case "ask":
     case "explain":

@@ -68,17 +68,32 @@ describe("handleReplInput", () => {
     });
   });
 
-  it("returns stubs for debug and fix slash commands", async () => {
+  it("runs slash debug and keeps fix as a stub", async () => {
     const stdout: string[] = [];
-    const deps = createDeps({ stdout: (text) => stdout.push(text) });
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Debug output");
+      },
+    });
 
     await handleReplInput({ line: "/debug crash", state: replState(), deps });
     await handleReplInput({ line: "/fix bug", state: replState(), deps });
 
-    expect(stdout).toEqual([
-      "Debug is not implemented in Phase 0.\n",
-      "Fix is not implemented in Phase 0.\n",
-    ]);
+    expect(flowInputs[0]?.brief.task).toBe("debug");
+    expect(flowInputs[0]?.userRequest).toBe("crash");
+    expect(stdout).toEqual(["Debug output\n", "Fix is not implemented in Phase 0.\n"]);
+  });
+
+  it("requires a prompt for slash debug", async () => {
+    const stderr: string[] = [];
+    const deps = createDeps({ stderr: (text) => stderr.push(text) });
+
+    await handleReplInput({ line: "/debug", state: replState(), deps });
+
+    expect(stderr).toEqual(["/debug requires a prompt.\n"]);
   });
 
   it("shows sessions and resumes a saved session", async () => {

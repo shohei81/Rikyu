@@ -47,8 +47,9 @@ function renderMizuyaResponseBlock(brief: SessionBrief, response: MizuyaResponse
 function taskSpecificMizuyaContextHint(brief: SessionBrief): string {
   switch (brief.task) {
     case "review":
-    case "debug":
       return "For this task, inspect findings first, then summary and doubts.";
+    case "debug":
+      return "For this task, treat findings as hypotheses or confirmation steps, then synthesize a practical debug path.";
     case "ask":
     case "explain":
       return "For this task, findings may be empty. Inspect summary first, then contextUsed and doubts.";

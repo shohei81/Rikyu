@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { handleAskCommand } from "../src/cli/ask.js";
+import { handleDebugCommand } from "../src/cli/debug.js";
 import { handleReviewCommand } from "../src/cli/review.js";
 import type { CommandHandlerDeps } from "../src/cli/common.js";
 import type { CollaborationResult, RunCollaborationFlowInput } from "../src/collaboration/flow.js";
@@ -139,6 +140,33 @@ describe("handleAskCommand", () => {
     expect(stderr).toContain("requestId=req-test\n");
     expect(stderr).toContain("degraded=true\n");
     expect(stderr).toContain("degradedReason=codex:ENOENT\n");
+  });
+});
+
+describe("handleDebugCommand", () => {
+  it("routes debug through the collaboration flow", async () => {
+    const flowInputs: RunCollaborationFlowInput[] = [];
+    const stdout: string[] = [];
+    const deps = createDeps({
+      stdout: (text) => stdout.push(text),
+      runFlow: async (input) => {
+        flowInputs.push(input);
+        return result("Debug output");
+      },
+    });
+
+    await handleDebugCommand({ symptom: "Tests fail with EADDRINUSE", deps });
+
+    expect(flowInputs[0]).toMatchObject({
+      userRequest: "Tests fail with EADDRINUSE",
+      brief: {
+        task: "debug",
+        target: "symptom",
+        intent: "Tests fail with EADDRINUSE",
+        mode: "quick",
+      },
+    });
+    expect(stdout).toEqual(["Debug output\n"]);
   });
 });
 

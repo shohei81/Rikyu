@@ -51,7 +51,7 @@ export function slashHelpText(): string {
     "/exit - Exit the session",
     "/review [prompt] - Review current changes",
     "/ask [prompt] - Ask a question",
-    "/debug [prompt] - Debug a symptom (stub in Phase 0)",
+    "/debug [prompt] - Debug a symptom",
     "/fix [prompt] - Plan a fix (stub in Phase 0)",
     "/resume [sessionId] - Resume a saved session snapshot",
     "/sessions - List saved sessions",

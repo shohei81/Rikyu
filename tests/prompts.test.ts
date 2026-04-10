@@ -62,6 +62,17 @@ describe("buildMizuyaPrompt", () => {
     expect(prompt).toContain("findings may be an empty array and that is normal");
     expect(prompt).toContain("<context>No additional context provided.</context>");
   });
+
+  it("includes debug-specific mizuya guidance", () => {
+    const prompt = buildMizuyaPrompt({
+      requestId: "req-debug",
+      userRequest: "Tests fail intermittently",
+      brief: { task: "debug", target: "symptom" },
+    });
+
+    expect(prompt).toContain("leading hypotheses");
+    expect(prompt).toContain("next confirmation steps");
+  });
 });
 
 describe("renderTeishuConstraints", () => {
@@ -108,5 +119,15 @@ describe("buildTeishuPrompt", () => {
     });
 
     expect(prompt).toContain("Continue in degraded mode");
+  });
+
+  it("uses debug-specific guidance for debug tasks", () => {
+    const prompt = buildTeishuPrompt({
+      userRequest: "Debug a failing test",
+      brief: { task: "debug", target: "symptom" },
+      mizuyaResponse,
+    });
+
+    expect(prompt).toContain("hypotheses or confirmation steps");
   });
 });
