@@ -9,6 +9,7 @@ import type { CollaborationResult, RunCollaborationFlowInput } from "../src/coll
 import type { SessionContext } from "../src/session/context.js";
 import type { RikyuConfig } from "../src/config/schema.js";
 import type { MizuyaResponse } from "../src/mizuya/schema.js";
+import type { recordRollbackSnapshot } from "../src/collaboration/rollback.js";
 
 const baseConfig: RikyuConfig = {
   mode: "quick",
@@ -297,6 +298,37 @@ describe("handleFixCommand", () => {
     expect(stderr.join("")).toContain("Re-review found 1 new issue(s) after apply.");
     expect(stderr.join("")).toContain("- warning new: New issue");
   });
+
+  it("records rollback state and prints rollback guidance when fix apply fails", async () => {
+    const stderr: string[] = [];
+    let recorded = false;
+    const deps = createDeps({
+      stderr: (text) => stderr.push(text),
+      recordRollbackSnapshot: async () => {
+        recorded = true;
+        return {
+          id: "rollback-1",
+          cwd: "/repo",
+          createdAt: "2026-04-10T00:00:00.000Z",
+          path: "/repo/.rikyu/rollback/rollback-1.json",
+          head: "abc123",
+        };
+      },
+      runFlow: async () => {
+        throw new Error("apply failed");
+      },
+    });
+
+    await expect(handleFixCommand({ options: { apply: true }, deps })).rejects.toThrow(
+      "apply failed",
+    );
+
+    expect(recorded).toBe(true);
+    expect(stderr.join("")).toContain("Apply failed. Rollback guidance:");
+    expect(stderr.join("")).toContain("git stash push -u -m \"rikyu rollback rollback-1\"");
+    expect(stderr.join("")).toContain("git checkout -- .");
+    expect(stderr.join("")).toContain("git checkout abc123");
+  });
 });
 
 function createDeps(options: {
@@ -310,8 +342,12 @@ function createDeps(options: {
       : never
     : never;
   mizuyaResponse?: MizuyaResponse;
+  recordRollbackSnapshot?: typeof recordRollbackSnapshot;
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
-} = {}): CommandHandlerDeps & { collectContext?: NonNullable<typeof options.collectContext> } {
+} = {}): CommandHandlerDeps & {
+  collectContext?: NonNullable<typeof options.collectContext>;
+  recordRollbackSnapshot?: typeof recordRollbackSnapshot;
+} {
   const config = options.config ?? baseConfig;
   return {
     cwd: "/repo",
@@ -322,6 +358,14 @@ function createDeps(options: {
     loadConfig: async () => config,
     createRequestId: () => "req-test",
     mizuyaResponse: options.mizuyaResponse,
+    recordRollbackSnapshot:
+      options.recordRollbackSnapshot ??
+      (async () => ({
+        id: "rollback-test",
+        cwd: "/repo",
+        createdAt: "2026-04-10T00:00:00.000Z",
+        path: "/repo/.rikyu/rollback/rollback-test.json",
+      })),
     createProgressReporter: (enabled) => ({
       stage: (stage) => {
         if (enabled) options.progress?.(stage);

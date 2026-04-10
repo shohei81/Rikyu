@@ -2,6 +2,11 @@ import type { Command } from "commander";
 
 import { estimateChangeSize, selectChangeExecutor } from "../collaboration/change-size.js";
 import { compareReviewFindings, formatReReviewNotification } from "../collaboration/review-compare.js";
+import {
+  formatRollbackGuidance,
+  recordRollbackSnapshot,
+  type RollbackSnapshot,
+} from "../collaboration/rollback.js";
 import type { MizuyaResponse } from "../mizuya/schema.js";
 import { redactSecrets } from "../output/redaction.js";
 import { collectSessionContext, type CollectSessionContextOptions } from "../session/context.js";
@@ -21,6 +26,7 @@ export interface HandleFixCommandInput {
   prompt?: string;
   deps?: CommandHandlerDeps & {
     collectContext?: typeof collectSessionContext;
+    recordRollbackSnapshot?: typeof recordRollbackSnapshot;
   };
 }
 
@@ -62,20 +68,49 @@ export async function handleFixCommand(input: HandleFixCommandInput = {}) {
     executor,
   });
 
-  const result = await executeCollaborationCommand({
-    userRequest,
-    brief,
-    useMizuya: false,
-    cliMode: modeFromFlags(input.options),
-    outputOptions: input.options,
-    deps: input.deps,
-  });
+  const rollbackSnapshot = mode === "apply" ? await prepareRollbackSnapshot(input) : undefined;
+  let result: Awaited<ReturnType<typeof executeCollaborationCommand>>;
+  try {
+    result = await executeCollaborationCommand({
+      userRequest,
+      brief,
+      useMizuya: false,
+      cliMode: modeFromFlags(input.options),
+      outputOptions: input.options,
+      deps: input.deps,
+    });
+  } catch (error) {
+    if (rollbackSnapshot) writeRollbackGuidance(input, rollbackSnapshot);
+    throw error;
+  }
 
   if (mode === "apply") {
     await runReReviewAfterApply(input, result.mizuyaResponse);
   }
 
   return result;
+}
+
+async function prepareRollbackSnapshot(input: HandleFixCommandInput): Promise<RollbackSnapshot> {
+  const recorder = input.deps?.recordRollbackSnapshot ?? recordRollbackSnapshot;
+  try {
+    return await recorder({ cwd: input.deps?.cwd });
+  } catch (error) {
+    return {
+      id: "unrecorded",
+      cwd: input.deps?.cwd ?? process.cwd(),
+      createdAt: new Date().toISOString(),
+      captureError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function writeRollbackGuidance(input: HandleFixCommandInput, snapshot: RollbackSnapshot): void {
+  const io = input.deps?.io ?? {
+    stdout: (text: string) => process.stdout.write(text),
+    stderr: (text: string) => process.stderr.write(text),
+  };
+  io.stderr(redactSecrets(formatRollbackGuidance(snapshot)));
 }
 
 function resolveFixMode(options: FixCommandOptions | undefined): DesiredOutcome {
