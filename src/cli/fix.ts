@@ -1,5 +1,9 @@
 import type { Command } from "commander";
 
+import {
+  collectChangeVerification,
+  formatChangeVerification,
+} from "../collaboration/change-verification.js";
 import { estimateChangeSize, selectChangeExecutor } from "../collaboration/change-size.js";
 import { compareReviewFindings, formatReReviewNotification } from "../collaboration/review-compare.js";
 import {
@@ -25,6 +29,7 @@ export interface HandleFixCommandInput {
   options?: FixCommandOptions;
   prompt?: string;
   deps?: CommandHandlerDeps & {
+    collectChangeVerification?: typeof collectChangeVerification;
     collectContext?: typeof collectSessionContext;
     recordRollbackSnapshot?: typeof recordRollbackSnapshot;
   };
@@ -86,6 +91,7 @@ export async function handleFixCommand(input: HandleFixCommandInput = {}) {
 
   if (mode === "apply") {
     await runReReviewAfterApply(input, result.mizuyaResponse);
+    await reportChangeVerification(input, rollbackSnapshot);
   }
 
   return result;
@@ -111,6 +117,20 @@ function writeRollbackGuidance(input: HandleFixCommandInput, snapshot: RollbackS
     stderr: (text: string) => process.stderr.write(text),
   };
   io.stderr(redactSecrets(formatRollbackGuidance(snapshot)));
+}
+
+async function reportChangeVerification(
+  input: HandleFixCommandInput,
+  beforeSnapshot: RollbackSnapshot | undefined,
+): Promise<void> {
+  const deps = input.deps ?? {};
+  const io = deps.io ?? {
+    stdout: (text: string) => process.stdout.write(text),
+    stderr: (text: string) => process.stderr.write(text),
+  };
+  const collector = deps.collectChangeVerification ?? collectChangeVerification;
+  const summary = await collector({ cwd: deps.cwd, beforeSnapshot });
+  io.stderr(redactSecrets(formatChangeVerification(summary)));
 }
 
 function resolveFixMode(options: FixCommandOptions | undefined): DesiredOutcome {

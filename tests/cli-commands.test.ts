@@ -10,6 +10,7 @@ import type { SessionContext } from "../src/session/context.js";
 import type { RikyuConfig } from "../src/config/schema.js";
 import type { MizuyaResponse } from "../src/mizuya/schema.js";
 import type { recordRollbackSnapshot } from "../src/collaboration/rollback.js";
+import type { collectChangeVerification } from "../src/collaboration/change-verification.js";
 
 const baseConfig: RikyuConfig = {
   mode: "quick",
@@ -272,6 +273,13 @@ describe("handleFixCommand", () => {
       stdout: (text) => stdout.push(text),
       stderr: (text) => stderr.push(text),
       mizuyaResponse: previousReview,
+      collectChangeVerification: async () => ({
+        suggestedCommands: ["npm test"],
+        impact: ["runtime source"],
+        changedFiles: ["src/app.ts"],
+        beforeDiffSummary: "src/app.ts | 1 +",
+        afterDiffSummary: "src/app.ts | 2 +-",
+      }),
       runFlow: async (input) => {
         flowInputs.push(input);
         if (input.brief.task === "review") {
@@ -297,6 +305,10 @@ describe("handleFixCommand", () => {
     expect(stdout).toEqual(["Fix output\n"]);
     expect(stderr.join("")).toContain("Re-review found 1 new issue(s) after apply.");
     expect(stderr.join("")).toContain("- warning new: New issue");
+    expect(stderr.join("")).toContain("Change verification:");
+    expect(stderr.join("")).toContain("Suggested tests: npm test");
+    expect(stderr.join("")).toContain("Before apply diff: src/app.ts | 1 +");
+    expect(stderr.join("")).toContain("After apply diff: src/app.ts | 2 +-");
   });
 
   it("records rollback state and prints rollback guidance when fix apply fails", async () => {
@@ -341,10 +353,12 @@ function createDeps(options: {
       ? C
       : never
     : never;
+  collectChangeVerification?: typeof collectChangeVerification;
   mizuyaResponse?: MizuyaResponse;
   recordRollbackSnapshot?: typeof recordRollbackSnapshot;
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
 } = {}): CommandHandlerDeps & {
+  collectChangeVerification?: typeof collectChangeVerification;
   collectContext?: NonNullable<typeof options.collectContext>;
   recordRollbackSnapshot?: typeof recordRollbackSnapshot;
 } {
@@ -374,6 +388,7 @@ function createDeps(options: {
     collectContext:
       options.collectContext ??
       (async () => context([{ label: "git-diff:working-tree", content: "diff" }])),
+    collectChangeVerification: options.collectChangeVerification,
     runFlow: options.runFlow ?? (async () => result("Output")),
   };
 }
