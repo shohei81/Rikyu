@@ -19,6 +19,7 @@ export interface CommandIo {
 
 export interface CommandHandlerDeps {
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   io?: CommandIo;
   loadConfig?: () => Promise<RikyuConfig>;
   runFlow?: (input: RunCollaborationFlowInput) => Promise<CollaborationResult>;
@@ -59,6 +60,7 @@ export async function executeCollaborationCommand(
     brief,
     context: options.context,
     cwd: deps.cwd,
+    env: deps.env,
     degradedStderrLogger: (line) => io.stderr(`${line}\n`),
   });
 

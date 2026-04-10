@@ -36,6 +36,7 @@ export interface RunCollaborationFlowInput {
   brief: SessionBrief;
   context?: PromptContextBlock[];
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   mizuyaRunner?: MizuyaRunner;
   teishuRunner?: TeishuRunner;
@@ -97,6 +98,7 @@ export async function defaultMizuyaRunner(
 ): Promise<ProviderResult<MizuyaResponse>> {
   const result = await runCodexCli(["exec", prompt], {
     cwd: input.cwd,
+    env: input.env,
     timeoutMs: input.timeoutMs,
   });
 
@@ -112,6 +114,7 @@ export async function defaultTeishuRunner(
 ): Promise<ProviderResult<TeishuResponse>> {
   const result = await runClaudeCli(["--bare", "-p", "--output-format", "json", prompt], {
     cwd: input.cwd,
+    env: input.env,
     timeoutMs: input.timeoutMs,
   });
 
