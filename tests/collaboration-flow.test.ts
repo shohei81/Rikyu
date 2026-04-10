@@ -146,6 +146,77 @@ describe("runCollaborationFlow", () => {
     expect(result).toMatchObject({ degraded: false, output: "Unified review" });
   });
 
+  it("runs a follow-up mizuya turn when teishu asks for more in standard mode", async () => {
+    const mizuyaRequests: string[] = [];
+    const teishuPrompts: string[] = [];
+    const mizuyaRunner: MizuyaRunner = async (prompt) => {
+      mizuyaRequests.push(prompt);
+      return providerResult("codex", {
+        ...mizuyaResponse,
+        requestId: mizuyaRequests.length === 1 ? "req-1" : "req-1-followup-1",
+        summary: `summary-${mizuyaRequests.length}`,
+      });
+    };
+    const teishuRunner: TeishuRunner = async (prompt) => {
+      teishuPrompts.push(prompt);
+      if (teishuPrompts.length === 1) {
+        return providerResult("claude", {
+          output: "Need more",
+          needsMoreFromMizuya: true,
+          followUpQuestion: "Check the failing path",
+        });
+      }
+      return providerResult("claude", {
+        output: "Final after follow-up",
+        needsMoreFromMizuya: false,
+      });
+    };
+
+    const result = await runCollaborationFlow({
+      requestId: "req-1",
+      userRequest: "Review this",
+      brief: { ...brief, mode: "standard" },
+      mizuyaRunner,
+      teishuRunner,
+    });
+
+    expect(mizuyaRequests).toHaveLength(2);
+    expect(mizuyaRequests[1]).toContain("<request-id>req-1-followup-1</request-id>");
+    expect(mizuyaRequests[1]).toContain("<user-request>Check the failing path</user-request>");
+    expect(teishuPrompts[1]).toContain("<follow-up-question>Check the failing path</follow-up-question>");
+    expect(result.output).toBe("Final after follow-up");
+    expect(result.mizuyaResponse?.summary).toBe("summary-2");
+  });
+
+  it("does not exceed quick mode's single mizuya turn", async () => {
+    let mizuyaCount = 0;
+    let teishuCount = 0;
+    const mizuyaRunner: MizuyaRunner = async () => {
+      mizuyaCount += 1;
+      return providerResult("codex", mizuyaResponse);
+    };
+    const teishuRunner: TeishuRunner = async () => {
+      teishuCount += 1;
+      return providerResult("claude", {
+        output: "Still need more",
+        needsMoreFromMizuya: true,
+        followUpQuestion: "More please",
+      });
+    };
+
+    const result = await runCollaborationFlow({
+      requestId: "req-quick",
+      userRequest: "Review this",
+      brief: { ...brief, mode: "quick" },
+      mizuyaRunner,
+      teishuRunner,
+    });
+
+    expect(mizuyaCount).toBe(1);
+    expect(teishuCount).toBe(1);
+    expect(result.output).toBe("Still need more");
+  });
+
   it("throws when injected runners do not return parsed data", async () => {
     const mizuyaRunner: MizuyaRunner = async () => ({
       provider: "codex",

@@ -9,6 +9,7 @@ import { runClaudeCli } from "../providers/claude-cli.js";
 import { runCodexCli } from "../providers/codex-cli.js";
 import type { ProviderResult } from "../providers/types.js";
 import type { SessionBrief } from "../session/types.js";
+import type { CollaborationMode } from "../session/brief.js";
 import { parseTeishuResponse } from "../teishu/parse.js";
 import { buildTeishuPrompt } from "../teishu/prompt.js";
 import type { TeishuResponse } from "../teishu/schema.js";
@@ -61,12 +62,14 @@ export async function runCollaborationFlow(
   const teishu = input.teishuRunner ?? defaultTeishuRunner;
   let mizuyaResponse: MizuyaResponse | undefined;
   let degradedInfo: DegradedInfo | undefined;
+  let mizuyaTurns = 0;
 
   if (!input.skipMizuya) {
     try {
       const mizuyaPrompt = buildMizuyaPrompt(toMizuyaPromptInput(input));
       const mizuyaResult = await mizuya(mizuyaPrompt, input);
       mizuyaResponse = requireParsedResult("codex", mizuyaResult);
+      mizuyaTurns += 1;
     } catch (error) {
       degradedInfo = createDegradedInfo(error);
       logDegradedStderr(
@@ -76,14 +79,31 @@ export async function runCollaborationFlow(
     }
   }
 
-  const teishuPrompt = buildTeishuPrompt({
-    userRequest: input.userRequest,
-    brief: input.brief,
-    mizuyaResponse,
-    mizuyaSkipped: input.skipMizuya,
-  });
-  const teishuResult = await teishu(teishuPrompt, input);
-  const teishuResponse = requireParsedResult("claude", teishuResult);
+  let teishuResponse = await runTeishuTurn(teishu, input, mizuyaResponse);
+
+  while (
+    !input.skipMizuya &&
+    !degradedInfo &&
+    teishuResponse.needsMoreFromMizuya &&
+    teishuResponse.followUpQuestion &&
+    mizuyaTurns < maxMizuyaTurns(input.brief.mode)
+  ) {
+    const followUpRequestId = `${input.requestId}-followup-${mizuyaTurns}`;
+    const mizuyaPrompt = buildMizuyaPrompt({
+      ...toMizuyaPromptInput(input),
+      requestId: followUpRequestId,
+      userRequest: teishuResponse.followUpQuestion,
+    });
+    const mizuyaResult = await mizuya(mizuyaPrompt, input);
+    mizuyaResponse = requireParsedResult("codex", mizuyaResult);
+    mizuyaTurns += 1;
+    teishuResponse = await runTeishuTurn(
+      teishu,
+      input,
+      mizuyaResponse,
+      teishuResponse.followUpQuestion,
+    );
+  }
 
   return {
     requestId: input.requestId,
@@ -94,6 +114,35 @@ export async function runCollaborationFlow(
     ...(degradedInfo ? { degradedReason: degradedInfo.reason } : {}),
     stderr: degradedInfo?.stderr ?? [],
   };
+}
+
+async function runTeishuTurn(
+  teishu: TeishuRunner,
+  input: RunCollaborationFlowInput,
+  mizuyaResponse: MizuyaResponse | undefined,
+  followUpQuestion?: string,
+): Promise<TeishuResponse> {
+  const teishuPrompt = buildTeishuPrompt({
+    userRequest: input.userRequest,
+    brief: input.brief,
+    mizuyaResponse,
+    mizuyaSkipped: input.skipMizuya,
+    followUpQuestion,
+  });
+  const teishuResult = await teishu(teishuPrompt, input);
+  return requireParsedResult("claude", teishuResult);
+}
+
+function maxMizuyaTurns(mode: CollaborationMode | undefined): number {
+  switch (mode) {
+    case "quick":
+      return 1;
+    case "deep":
+      return 3;
+    case "standard":
+    default:
+      return 2;
+  }
 }
 
 export async function defaultMizuyaRunner(
