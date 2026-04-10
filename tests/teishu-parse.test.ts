@@ -16,6 +16,22 @@ describe("parseTeishuResponse", () => {
     });
   });
 
+  it("parses Claude Code JSON output envelopes", () => {
+    expect(
+      parseTeishuResponse(
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: '{"output":"Done from envelope","needsMoreFromMizuya":false}',
+        }),
+      ),
+    ).toEqual({
+      output: "Done from envelope",
+      needsMoreFromMizuya: false,
+    });
+  });
+
   it("throws ProviderError for invalid response shape", () => {
     expect(() => parseTeishuResponse('{"output":"Done"}')).toThrow(ProviderError);
   });

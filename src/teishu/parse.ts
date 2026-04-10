@@ -11,11 +11,26 @@ export function parseTeishuResponse(raw: string): TeishuResponse {
   }
 
   try {
-    return teishuResponseSchema.parse(JSON.parse(jsonText));
+    const parsed = JSON.parse(jsonText) as unknown;
+    const direct = teishuResponseSchema.safeParse(parsed);
+    if (direct.success) return direct.data;
+
+    if (isClaudeJsonEnvelope(parsed)) {
+      const nestedJsonText = extractJsonObject(parsed.result);
+      if (nestedJsonText) {
+        return teishuResponseSchema.parse(JSON.parse(nestedJsonText));
+      }
+    }
+
+    return teishuResponseSchema.parse(parsed);
   } catch (cause) {
     throw new ProviderError("claude", "PARSE_ERROR", "Invalid TeishuResponse JSON", {
       stdout: raw,
       cause,
     });
   }
+}
+
+function isClaudeJsonEnvelope(value: unknown): value is { result: string } {
+  return typeof value === "object" && value !== null && "result" in value && typeof value.result === "string";
 }
