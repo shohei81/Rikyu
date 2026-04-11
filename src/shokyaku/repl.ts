@@ -92,7 +92,7 @@ const slashCommands: SlashCommand[] = [
         ["/debug", "Debug a symptom"],
         ["/explain", "Explain a concept"],
         ["/fix", "Propose a fix (tool use auto-enabled)"],
-        ["/tools", "Toggle tool permissions (edit/bash)"],
+        ["/permissions", "Set tool permissions (safe/edit/full)"],
         ["/sessions", "List saved sessions"],
         ["/resume", "Resume a session"],
         ["/status", "Show status"],
@@ -111,7 +111,7 @@ const slashCommands: SlashCommand[] = [
     handler: async () => false,
   },
   {
-    name: "tools",
+    name: "permissions",
     description: "Set tool permissions",
     handler: async (args, state) => {
       const arg = args.trim().toLowerCase();
@@ -135,10 +135,10 @@ const slashCommands: SlashCommand[] = [
           const marker = state.toolPermission === name ? chalk.green("● ") : chalk.dim("○ ");
           console.log(`  ${marker}${chalk.cyan(name.padEnd(6))} ${chalk.dim(desc)}`);
         }
-        console.log(chalk.dim(`\n  Usage: /tools safe|edit|full\n`));
+        console.log(chalk.dim(`\n  Usage: /permissions safe|edit|full\n`));
         return true;
       } else {
-        printInfo("Usage: /tools [safe|edit|full]");
+        printInfo("Usage: /permissions [safe|edit|full]");
         return true;
       }
       const labels: Record<ToolPermission, string> = {
@@ -146,7 +146,7 @@ const slashCommands: SlashCommand[] = [
         edit: chalk.blue("edit") + chalk.dim(" — read + edit files"),
         full: chalk.green("full") + chalk.dim(" — read + edit + bash"),
       };
-      console.log(`  ${chalk.dim("tools")} ${labels[state.toolPermission]}`);
+      console.log(`  ${chalk.dim("permissions")} ${labels[state.toolPermission]}`);
       return true;
     },
   },
@@ -216,7 +216,7 @@ const slashCommands: SlashCommand[] = [
         edit: chalk.blue("edit"),
         full: chalk.green("full"),
       };
-      console.log(`  ${chalk.dim("tools")}     ${permColors[state.toolPermission]}`);
+      console.log(`  ${chalk.dim("perms")}     ${permColors[state.toolPermission]}`);
       console.log(
         `  ${chalk.dim("circuit")}   ${state.circuitOpen ? chalk.red("open") : chalk.green("closed")}`,
       );
