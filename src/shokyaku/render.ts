@@ -7,17 +7,19 @@
  */
 
 import chalk from "chalk";
-import { marked, type MarkedExtension } from "marked";
+import { marked } from "marked";
 
 let initialized = false;
 
 async function ensureInit(): Promise<void> {
   if (initialized) return;
   initialized = true;
+
   // @ts-expect-error -- marked-terminal has no type declarations
-  const { default: markedTerminal } = await import("marked-terminal");
-  marked.use(
-    (markedTerminal as (opts: Record<string, unknown>) => MarkedExtension)({
+  const { default: TerminalRenderer } = await import("marked-terminal");
+
+  marked.setOptions({
+    renderer: new TerminalRenderer({
       heading: chalk.bold.white,
       firstHeading: chalk.bold.white,
       strong: chalk.bold,
@@ -27,7 +29,6 @@ async function ensureInit(): Promise<void> {
       blockquote: chalk.dim.italic,
       listitem: chalk.white,
       link: chalk.cyan.underline,
-      hr: chalk.dim("─".repeat(40)),
       table: chalk.white,
       paragraph: chalk.white,
       showSectionPrefix: false,
@@ -35,7 +36,7 @@ async function ensureInit(): Promise<void> {
       width: Math.min(process.stdout.columns || 80, 100),
       tab: 2,
     }),
-  );
+  });
 }
 
 export async function renderMarkdown(text: string): Promise<string> {
