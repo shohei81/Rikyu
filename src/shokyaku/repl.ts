@@ -297,13 +297,6 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
       const input = line.trim();
       if (!input) return;
 
-      // Bare exit/quit without /
-      if (/^(exit|quit|q)$/i.test(input)) {
-        console.log(chalk.dim("\n  お先に失礼します。\n"));
-        rl.close();
-        return;
-      }
-
       // Slash command
       if (input.startsWith("/")) {
         const [cmdName, ...rest] = input.slice(1).split(/\s+/);
