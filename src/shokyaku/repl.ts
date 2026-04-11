@@ -47,10 +47,10 @@ function printBanner(): void {
   console.log(chalk.dim("  /help for commands\n"));
 }
 
-async function printResponse(text: string): Promise<void> {
+function printResponse(text: string): void {
   console.log();
   console.log(SEPARATOR);
-  process.stdout.write(await renderMarkdown(text));
+  process.stdout.write(renderMarkdown(text));
   console.log(SEPARATOR);
   console.log();
 }
@@ -321,7 +321,7 @@ async function runTurn(
     });
 
     // Render output with markdown
-    await printResponse(result.output);
+    printResponse(result.output);
 
     // Update state
     state.lastBrief = brief;

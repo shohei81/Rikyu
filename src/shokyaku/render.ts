@@ -1,46 +1,87 @@
 /**
- * Terminal markdown renderer.
+ * Terminal markdown renderer — lightweight, no dependencies beyond chalk.
  *
- * Renders agent output as styled terminal text —
- * headers, code blocks, bold, inline code — all rendered
- * with muted, elegant colors befitting the tea room.
+ * Handles the subset of markdown that agents actually produce:
+ * headers, bold, inline code, code blocks, lists, blockquotes.
+ * 侘び寂び — simple enough to understand at a glance.
  */
 
 import chalk from "chalk";
-import { marked } from "marked";
 
-let initialized = false;
+export function renderMarkdown(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let inCode = false;
 
-async function ensureInit(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+  for (const line of lines) {
+    // Code block fence
+    if (line.trimStart().startsWith("```")) {
+      inCode = !inCode;
+      if (inCode) {
+        out.push(chalk.dim("  ┌" + "─".repeat(50)));
+      } else {
+        out.push(chalk.dim("  └" + "─".repeat(50)));
+      }
+      continue;
+    }
 
-  // @ts-expect-error -- marked-terminal has no type declarations
-  const { default: TerminalRenderer } = await import("marked-terminal");
+    if (inCode) {
+      out.push(chalk.dim("  │ ") + chalk.gray(line));
+      continue;
+    }
 
-  marked.setOptions({
-    renderer: new TerminalRenderer({
-      heading: chalk.bold.white,
-      firstHeading: chalk.bold.white,
-      strong: chalk.bold,
-      em: chalk.italic,
-      codespan: chalk.cyan,
-      code: chalk.gray,
-      blockquote: chalk.dim.italic,
-      listitem: chalk.white,
-      link: chalk.cyan.underline,
-      table: chalk.white,
-      paragraph: chalk.white,
-      showSectionPrefix: false,
-      reflowText: true,
-      width: Math.min(process.stdout.columns || 80, 100),
-      tab: 2,
-    }),
-  });
+    // Heading
+    const h = line.match(/^(#{1,3})\s+(.+)/);
+    if (h) {
+      out.push("");
+      out.push(chalk.bold(h[2]));
+      out.push("");
+      continue;
+    }
+
+    // Blockquote
+    if (line.startsWith("> ")) {
+      out.push(chalk.dim("  │ ") + chalk.italic(inlineFmt(line.slice(2))));
+      continue;
+    }
+
+    // List item
+    const li = line.match(/^(\s*)[-*]\s+(.+)/);
+    if (li) {
+      out.push(li[1] + "  " + chalk.dim("•") + " " + inlineFmt(li[2]));
+      continue;
+    }
+
+    // Numbered list
+    const ol = line.match(/^(\s*)\d+\.\s+(.+)/);
+    if (ol) {
+      out.push(ol[1] + "  " + inlineFmt(ol[2]));
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      out.push(chalk.dim("─".repeat(40)));
+      continue;
+    }
+
+    // Regular line
+    out.push(inlineFmt(line));
+  }
+
+  return out.join("\n") + "\n";
 }
 
-export async function renderMarkdown(text: string): Promise<string> {
-  await ensureInit();
-  const rendered = marked.parse(text) as string;
-  return rendered.replace(/\n{3,}$/g, "\n");
+function inlineFmt(text: string): string {
+  return (
+    text
+      // Bold + italic
+      .replace(/\*\*\*(.+?)\*\*\*/g, (_, m: string) => chalk.bold.italic(m))
+      // Bold
+      .replace(/\*\*(.+?)\*\*/g, (_, m: string) => chalk.bold(m))
+      // Italic
+      .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_, m: string) => chalk.italic(m))
+      // Inline code
+      .replace(/`([^`]+)`/g, (_, m: string) => chalk.cyan(m))
+  );
 }
