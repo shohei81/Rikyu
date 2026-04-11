@@ -149,6 +149,9 @@ export async function runSubprocess(
       });
     });
 
+    // Ignore EPIPE — child may be killed before stdin write completes
+    child.stdin.on("error", () => {});
+
     if (options.stdin !== undefined) {
       child.stdin.end(options.stdin);
     } else {

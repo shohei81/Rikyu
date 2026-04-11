@@ -515,29 +515,35 @@ function listenForEsc(callback: () => void): () => void {
   const stdin = process.stdin;
   if (!stdin.isTTY || !stdin.setRawMode) return () => {};
 
-  // Evict readline's listeners
+  // Evict readline's listeners so we're the sole consumer
   const saved = stdin.rawListeners("data").slice();
   stdin.removeAllListeners("data");
 
   stdin.setRawMode(true);
   stdin.resume();
 
+  let fired = false;
   const onData = (data: Buffer) => {
+    if (fired) return;
     // ESC (0x1b alone) or Ctrl-C (0x03)
     if ((data.length === 1 && data[0] === 0x1b) || data[0] === 0x03) {
+      fired = true;
+      cleanup();
       callback();
     }
   };
-  stdin.on("data", onData);
 
-  return () => {
+  const cleanup = () => {
     stdin.removeListener("data", onData);
     try { stdin.setRawMode(false); } catch { /* */ }
-    // Restore readline's listeners
     for (const fn of saved) {
       stdin.on("data", fn as (...args: unknown[]) => void);
     }
   };
+
+  stdin.on("data", onData);
+
+  return cleanup;
 }
 
 // ── Circuit breaker (exported for testing) ──────────────
