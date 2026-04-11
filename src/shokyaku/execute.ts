@@ -51,6 +51,8 @@ export interface ExecuteOptions {
   config?: RikyuConfig;
   /** Override Hanto (for testing) */
   hanto?: Hanto;
+  /** Explicit tool use override (from /tools command) */
+  toolUseOverride?: boolean;
 }
 
 export interface ExecuteResult extends ChajiResult {
@@ -96,7 +98,7 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
       mizuyaResult: options.mizuyaResult,
       mizuyaFailure: options.mizuyaFailure,
       skipMizuya: !shouldUseMizuya(brief.task),
-      toolUse: brief.desiredOutcome === "apply" || brief.desiredOutcome === "patch-proposal",
+      toolUse: options.toolUseOverride ?? (brief.desiredOutcome === "apply" || brief.desiredOutcome === "patch-proposal"),
     },
     { cwd: context.cwd },
     {

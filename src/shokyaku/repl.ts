@@ -6,7 +6,7 @@
  * across multiple turns.
  */
 
-import { createInterface, type Interface } from "node:readline";
+import { createInterface, type Interface, type CompleterResult } from "node:readline";
 import { randomUUID } from "node:crypto";
 import chalk from "chalk";
 import { classifyBrief } from "../chaji/brief.js";
@@ -30,6 +30,7 @@ interface ReplState {
   lastMizuyaResponse?: MizuyaResponse;
   consecutiveFailures: number;
   circuitOpen: boolean;
+  toolUse: boolean;
 }
 
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -81,7 +82,7 @@ const slashCommands: SlashCommand[] = [
   {
     name: "help",
     description: "Show available commands",
-    handler: async () => {
+    handler: async (_, state) => {
       console.log();
       console.log(chalk.white.bold("  Commands"));
       console.log();
@@ -90,7 +91,8 @@ const slashCommands: SlashCommand[] = [
         ["/ask", "Ask a question"],
         ["/debug", "Debug a symptom"],
         ["/explain", "Explain a concept"],
-        ["/fix", "Propose a fix"],
+        ["/fix", "Propose a fix (tool use auto-enabled)"],
+        ["/tools", "Toggle tool permissions (edit/bash)"],
         ["/sessions", "List saved sessions"],
         ["/resume", "Resume a session"],
         ["/status", "Show status"],
@@ -107,6 +109,28 @@ const slashCommands: SlashCommand[] = [
     name: "exit",
     description: "Exit REPL",
     handler: async () => false,
+  },
+  {
+    name: "tools",
+    description: "Toggle tool permissions",
+    handler: async (args, state) => {
+      const arg = args.trim().toLowerCase();
+      if (arg === "on") {
+        state.toolUse = true;
+      } else if (arg === "off") {
+        state.toolUse = false;
+      } else if (!arg) {
+        state.toolUse = !state.toolUse;
+      } else {
+        printInfo("Usage: /tools [on|off]");
+        return true;
+      }
+      const label = state.toolUse
+        ? chalk.green("on") + chalk.dim(" — edit files, run commands")
+        : chalk.yellow("off") + chalk.dim(" — read-only analysis");
+      console.log(`  ${chalk.dim("tools")} ${label}`);
+      return true;
+    },
   },
   {
     name: "sessions",
@@ -169,6 +193,8 @@ const slashCommands: SlashCommand[] = [
       if (state.lastBrief) {
         console.log(`  ${chalk.dim("last task")} ${state.lastBrief.task}`);
       }
+      const toolLabel = state.toolUse ? chalk.green("on") : chalk.yellow("off");
+      console.log(`  ${chalk.dim("tools")}     ${toolLabel}`);
       console.log(
         `  ${chalk.dim("circuit")}   ${state.circuitOpen ? chalk.red("open") : chalk.green("closed")}`,
       );
@@ -191,6 +217,18 @@ for (const task of ["review", "ask", "debug", "explain", "fix"] as const) {
   });
 }
 
+// ── Tab completion ──────────────────────────────────────
+
+const commandNames = slashCommands.map((c) => `/${c.name}`);
+
+function completer(line: string): CompleterResult {
+  if (line.startsWith("/")) {
+    const hits = commandNames.filter((c) => c.startsWith(line));
+    return [hits.length ? hits : commandNames, line];
+  }
+  return [[], line];
+}
+
 // ── Main REPL loop ──────────────────────────────────────
 
 export interface ReplOptions {
@@ -202,6 +240,7 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
     sessionId: randomUUID(),
     consecutiveFailures: 0,
     circuitOpen: false,
+    toolUse: false,
   };
 
   // Handle --resume
@@ -239,6 +278,7 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
       input: process.stdin,
       output: process.stdout,
       prompt: PROMPT,
+      completer,
     });
 
     rl.on("close", () => {
@@ -315,6 +355,7 @@ async function runTurn(
       sessionId: state.sessionId,
       claudeSessionId: state.claudeSessionId,
       suppressOutput: true,
+      toolUseOverride: state.toolUse,
       mizuyaResult:
         state.lastMizuyaResponse && briefUnchanged(brief, state.lastBrief)
           ? state.lastMizuyaResponse
