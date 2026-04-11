@@ -272,15 +272,13 @@ async function runTurn(
     }
 
     // Circuit breaker
-    if (result.degraded && result.degradedReason?.startsWith("codex:")) {
-      state.consecutiveFailures++;
-      if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        state.circuitOpen = true;
-      }
-    } else {
-      state.consecutiveFailures = 0;
-      state.circuitOpen = false;
-    }
+    const cb = updateCircuitBreaker(
+      { consecutiveFailures: state.consecutiveFailures, open: state.circuitOpen },
+      result.degraded,
+      result.degradedReason,
+    );
+    state.consecutiveFailures = cb.consecutiveFailures;
+    state.circuitOpen = cb.open;
 
     console.log();
   } catch (error) {
@@ -309,4 +307,27 @@ function briefUnchanged(
 ): boolean {
   if (!previous) return false;
   return current.task === previous.task && current.target === previous.target;
+}
+
+// ── Circuit breaker (exported for testing) ──────────────
+
+export interface CircuitBreakerState {
+  consecutiveFailures: number;
+  open: boolean;
+}
+
+export function updateCircuitBreaker(
+  state: CircuitBreakerState,
+  degraded: boolean,
+  degradedReason: string | undefined,
+  maxFailures: number = MAX_CONSECUTIVE_FAILURES,
+): CircuitBreakerState {
+  if (degraded && degradedReason?.startsWith("codex:")) {
+    const failures = state.consecutiveFailures + 1;
+    return {
+      consecutiveFailures: failures,
+      open: failures >= maxFailures,
+    };
+  }
+  return { consecutiveFailures: 0, open: false };
 }

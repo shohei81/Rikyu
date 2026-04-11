@@ -49,7 +49,7 @@ export async function collectContext(
     gitRoot = (await run("git", ["rev-parse", "--show-toplevel"], cwd)).trim();
     head = (await run("git", ["rev-parse", "--short", "HEAD"], cwd)).trim();
   } catch {
-    /* not a git repo */
+    // Not a git repo — expected, not an error
   }
 
   switch (brief.target) {
@@ -74,8 +74,12 @@ export async function collectContext(
         try {
           const content = await readFile(options.target, "utf8");
           blocks.push({ label: `File: ${options.target}`, content });
-        } catch {
-          /* file doesn't exist */
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            process.stderr.write(
+              `Warning: could not read ${options.target}: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+          }
         }
       }
       break;

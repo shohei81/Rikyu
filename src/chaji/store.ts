@@ -117,7 +117,12 @@ export async function listSnapshots(
   let entries: string[];
   try {
     entries = await readdir(dir);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      process.stderr.write(
+        `Warning: could not read sessions directory: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
     return [];
   }
 
