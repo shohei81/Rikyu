@@ -8,6 +8,7 @@
 
 import { createInterface, type Interface } from "node:readline";
 import { randomUUID } from "node:crypto";
+import chalk from "chalk";
 import { classifyBrief } from "../chaji/brief.js";
 import {
   loadSnapshot,
@@ -18,6 +19,7 @@ import type { SessionBrief } from "../chaji/types.js";
 import type { MizuyaResponse } from "../mizuya/schema.js";
 import { ProviderError } from "../agent/types.js";
 import { execute } from "./execute.js";
+import { renderMarkdown } from "./render.js";
 
 // ── REPL state ──────────────────────────────────────────
 
@@ -32,6 +34,37 @@ interface ReplState {
 
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+// ── UI helpers ──────────────────────────────────────────
+
+const PROMPT = chalk.green("◆") + chalk.dim(" rikyu ") + chalk.dim("› ");
+const SEPARATOR = chalk.dim("─".repeat(Math.min(process.stdout.columns || 60, 60)));
+
+function printBanner(): void {
+  console.log();
+  console.log(chalk.dim("╭──────────────────────────╮"));
+  console.log(chalk.dim("│") + chalk.white.bold("  rikyu ") + chalk.dim("─ 一期一会     ") + chalk.dim("│"));
+  console.log(chalk.dim("╰──────────────────────────╯"));
+  console.log(chalk.dim("  /help for commands\n"));
+}
+
+async function printResponse(text: string): Promise<void> {
+  console.log();
+  console.log(SEPARATOR);
+  process.stdout.write(await renderMarkdown(text));
+  console.log(SEPARATOR);
+  console.log();
+}
+
+function printError(message: string): void {
+  console.log();
+  console.log(chalk.red("  ✕ ") + message);
+  console.log();
+}
+
+function printInfo(message: string): void {
+  console.log(chalk.dim("  " + message));
+}
+
 // ── Slash commands ──────────────────────────────────────
 
 interface SlashCommand {
@@ -41,7 +74,7 @@ interface SlashCommand {
     args: string,
     state: ReplState,
     rl: Interface,
-  ) => Promise<boolean>; // returns true to continue, false to exit
+  ) => Promise<boolean>;
 }
 
 const slashCommands: SlashCommand[] = [
@@ -49,17 +82,24 @@ const slashCommands: SlashCommand[] = [
     name: "help",
     description: "Show available commands",
     handler: async () => {
-      console.log("\nCommands:");
-      console.log("  /review [prompt]  — Review code changes");
-      console.log("  /ask [prompt]     — Ask a question");
-      console.log("  /debug [prompt]   — Debug a symptom");
-      console.log("  /explain [prompt] — Explain a concept");
-      console.log("  /fix [prompt]     — Propose a fix");
-      console.log("  /sessions         — List saved sessions");
-      console.log("  /resume [id]      — Resume a session");
-      console.log("  /status           — Show status");
-      console.log("  /exit             — Exit REPL");
-      console.log("  (or just type naturally)\n");
+      console.log();
+      console.log(chalk.white.bold("  Commands"));
+      console.log();
+      const cmds = [
+        ["/review", "Review code changes"],
+        ["/ask", "Ask a question"],
+        ["/debug", "Debug a symptom"],
+        ["/explain", "Explain a concept"],
+        ["/fix", "Propose a fix"],
+        ["/sessions", "List saved sessions"],
+        ["/resume", "Resume a session"],
+        ["/status", "Show status"],
+        ["/exit", "Exit"],
+      ];
+      for (const [cmd, desc] of cmds) {
+        console.log(`  ${chalk.cyan(cmd.padEnd(12))} ${chalk.dim(desc)}`);
+      }
+      console.log(chalk.dim("\n  Or just type naturally.\n"));
       return true;
     },
   },
@@ -74,11 +114,15 @@ const slashCommands: SlashCommand[] = [
     handler: async () => {
       const sessions = await listSnapshots();
       if (sessions.length === 0) {
-        console.log("No saved sessions.");
+        printInfo("No saved sessions.");
       } else {
-        console.log("\nSaved sessions:");
+        console.log();
+        console.log(chalk.white.bold("  Sessions"));
+        console.log();
         for (const s of sessions.slice(0, 10)) {
-          console.log(`  ${s.sessionId}  (${s.updatedAt})`);
+          console.log(
+            `  ${chalk.cyan(s.sessionId.slice(0, 8))}  ${chalk.dim(s.updatedAt)}`,
+          );
         }
       }
       console.log();
@@ -96,7 +140,7 @@ const slashCommands: SlashCommand[] = [
         } else {
           const sessions = await listSnapshots();
           if (sessions.length === 0) {
-            console.log("No sessions to resume.");
+            printInfo("No sessions to resume.");
             return true;
           }
           snapshot = await loadSnapshot(sessions[0].sessionId);
@@ -104,11 +148,9 @@ const slashCommands: SlashCommand[] = [
         state.sessionId = snapshot.sessionId;
         state.claudeSessionId = snapshot.claudeSessionId;
         state.lastBrief = snapshot.brief as unknown as SessionBrief;
-        console.log(`Resumed session ${snapshot.sessionId}\n`);
+        printInfo(`Resumed session ${chalk.cyan(snapshot.sessionId.slice(0, 8))}`);
       } catch (error) {
-        console.error(
-          `Failed to resume: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        printError(error instanceof Error ? error.message : String(error));
       }
       return true;
     },
@@ -117,15 +159,18 @@ const slashCommands: SlashCommand[] = [
     name: "status",
     description: "Show status",
     handler: async (_, state) => {
-      console.log(`\nSession: ${state.sessionId}`);
+      console.log();
+      console.log(chalk.white.bold("  Status"));
+      console.log();
+      console.log(`  ${chalk.dim("session")}   ${chalk.cyan(state.sessionId.slice(0, 8))}`);
       if (state.claudeSessionId) {
-        console.log(`Claude session: ${state.claudeSessionId}`);
+        console.log(`  ${chalk.dim("claude")}    ${state.claudeSessionId.slice(0, 8)}`);
       }
       if (state.lastBrief) {
-        console.log(`Last task: ${state.lastBrief.task}`);
+        console.log(`  ${chalk.dim("last task")} ${state.lastBrief.task}`);
       }
       console.log(
-        `Circuit breaker: ${state.circuitOpen ? "OPEN" : "closed"}`,
+        `  ${chalk.dim("circuit")}   ${state.circuitOpen ? chalk.red("open") : chalk.green("closed")}`,
       );
       console.log();
       return true;
@@ -172,7 +217,7 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
         if (sessions.length > 0) {
           snapshot = await loadSnapshot(sessions[0].sessionId);
         } else {
-          console.log("No sessions to resume.");
+          printInfo("No sessions to resume.");
           snapshot = undefined as unknown as SessionSnapshot;
         }
       }
@@ -180,22 +225,19 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
         state.sessionId = snapshot.sessionId;
         state.claudeSessionId = snapshot.claudeSessionId;
         state.lastBrief = snapshot.brief as unknown as SessionBrief;
-        console.log(`Resumed session ${snapshot.sessionId}`);
+        printInfo(`Resumed session ${chalk.cyan(snapshot.sessionId.slice(0, 8))}`);
       }
     } catch (error) {
-      console.error(
-        `Could not resume: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      printError(error instanceof Error ? error.message : String(error));
     }
   }
 
-  console.log("rikyu — 一期一会");
-  console.log('Type /help for commands, or just ask.\n');
+  printBanner();
 
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: "rikyu> ",
+    prompt: PROMPT,
   });
 
   rl.prompt();
@@ -218,11 +260,12 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
           rl,
         );
         if (!shouldContinue) {
+          console.log(chalk.dim("\n  お先に失礼します。\n"));
           rl.close();
           return;
         }
       } else {
-        console.log(`Unknown command: /${cmdName}. Type /help for help.`);
+        printInfo(`Unknown command: /${cmdName}. Type /help.`);
       }
       rl.prompt();
       continue;
@@ -241,7 +284,6 @@ async function runTurn(
   state: ReplState,
   forceTask?: string,
 ): Promise<void> {
-  // Classify the brief
   const brief = forceTask
     ? {
         ...classifyBrief(input, state.lastBrief),
@@ -255,6 +297,7 @@ async function runTurn(
       userRequest: input,
       sessionId: state.sessionId,
       claudeSessionId: state.claudeSessionId,
+      suppressOutput: true,
       mizuyaResult:
         state.lastMizuyaResponse && briefUnchanged(brief, state.lastBrief)
           ? state.lastMizuyaResponse
@@ -263,6 +306,9 @@ async function runTurn(
         ? new Error("Circuit breaker open — mizuya skipped")
         : undefined,
     });
+
+    // Render output with markdown
+    await printResponse(result.output);
 
     // Update state
     state.lastBrief = brief;
@@ -273,30 +319,29 @@ async function runTurn(
 
     // Circuit breaker
     const cb = updateCircuitBreaker(
-      { consecutiveFailures: state.consecutiveFailures, open: state.circuitOpen },
+      {
+        consecutiveFailures: state.consecutiveFailures,
+        open: state.circuitOpen,
+      },
       result.degraded,
       result.degradedReason,
     );
     state.consecutiveFailures = cb.consecutiveFailures;
     state.circuitOpen = cb.open;
-
-    console.log();
   } catch (error) {
     if (error instanceof ProviderError) {
-      console.error(`\nError [${error.provider}:${error.code}]: ${error.message}\n`);
+      printError(`[${error.provider}:${error.code}] ${error.message}`);
       if (error.provider === "codex") {
         state.consecutiveFailures++;
         if (state.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           state.circuitOpen = true;
-          console.error(
-            "Circuit breaker opened — mizuya will be skipped until a successful request.\n",
+          printInfo(
+            "Circuit breaker opened — mizuya will be skipped.",
           );
         }
       }
     } else {
-      console.error(
-        `\nError: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      printError(error instanceof Error ? error.message : String(error));
     }
   }
 }

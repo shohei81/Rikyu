@@ -6,6 +6,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import chalk from "chalk";
+import ora, { type Ora } from "ora";
 import { MizuyaAgent } from "../mizuya/agent.js";
 import { TeishuAgent } from "../teishu/agent.js";
 import { Hanto, type ChajiResult } from "../hanto/orchestrator.js";
@@ -59,8 +61,7 @@ export interface ExecuteResult extends ChajiResult {
 
 export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   const startedAt = Date.now();
-  const config =
-    options.config ?? (await loadConfig()).config;
+  const config = options.config ?? (await loadConfig()).config;
 
   // Resolve mode via toriawase
   const brief: SessionBrief = {
@@ -80,6 +81,9 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   const hanto =
     options.hanto ?? new Hanto(new MizuyaAgent(), new TeishuAgent());
 
+  // Spinner for progress
+  const spinner = createSpinner(config.progress);
+
   // Conduct the chaji
   const result = await hanto.conduct(
     {
@@ -95,11 +99,14 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
     },
     { cwd: context.cwd },
     {
-      onPhase: config.progress ? writePhaseProgress : undefined,
-      onDegraded: (reason) =>
-        process.stderr.write(`\n⚠ Degraded: ${reason}\n`),
+      onPhase: (phase) => updateSpinner(spinner, phase),
+      onDegraded: (reason) => {
+        spinner?.warn(chalk.yellow(`Degraded: ${reason}`));
+      },
     },
   );
+
+  stopSpinner(spinner);
 
   // Output formatting
   if (!options.suppressOutput) {
@@ -121,7 +128,7 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
           }),
         );
       } else {
-        process.stdout.write(formatText(result));
+        process.stdout.write(await formatText(result));
       }
     }
 
@@ -157,7 +164,7 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   return { ...result, config };
 }
 
-// ── Progress display ────────────────────────────────────
+// ── Spinner ─────────────────────────────────────────────
 
 const phaseLabels: Record<string, string> = {
   shoza: "the kettle is heating …",
@@ -165,30 +172,42 @@ const phaseLabels: Record<string, string> = {
   taiseki: "",
 };
 
-function writePhaseProgress(phase: string): void {
-  const label = phaseLabels[phase]
-    ?? (phase.startsWith("usucha") ? "one more steep …" : "");
+function createSpinner(enabled: boolean): Ora | undefined {
+  if (!enabled || !process.stderr.isTTY) return undefined;
+  return ora({
+    stream: process.stderr,
+    color: "gray",
+    spinner: "dots",
+  });
+}
+
+function updateSpinner(spinner: Ora | undefined, phase: string): void {
+  if (!spinner) return;
+  const label =
+    phaseLabels[phase] ??
+    (phase.startsWith("usucha") ? "one more steep …" : "");
   if (!label) {
-    if (process.stderr.isTTY) {
-      process.stderr.write("\r\x1b[K");
-    }
+    spinner.stop();
     return;
   }
-  if (process.stderr.isTTY) {
-    process.stderr.write(`\r\x1b[K${label}`);
-  }
+  spinner.text = chalk.dim(label);
+  if (!spinner.isSpinning) spinner.start();
+}
+
+function stopSpinner(spinner: Ora | undefined): void {
+  if (spinner?.isSpinning) spinner.stop();
 }
 
 function writeVerbose(result: ChajiResult, brief: SessionBrief): void {
   const w = (s: string) => process.stderr.write(s);
-  w(`\nrequestId=${result.id}\n`);
-  w(`mode=${brief.mode ?? "unknown"}\n`);
-  w(`degraded=${String(result.degraded)}\n`);
-  w(`mizuyaFindings=${String(result.mizuya?.findings.length ?? 0)}\n`);
+  w(`\n${chalk.dim("requestId")}=${result.id}\n`);
+  w(`${chalk.dim("mode")}=${brief.mode ?? "unknown"}\n`);
+  w(`${chalk.dim("degraded")}=${String(result.degraded)}\n`);
+  w(`${chalk.dim("mizuyaFindings")}=${String(result.mizuya?.findings.length ?? 0)}\n`);
   if (result.degradedReason) {
-    w(`degradedReason=${redactSecrets(result.degradedReason)}\n`);
+    w(`${chalk.dim("degradedReason")}=${redactSecrets(result.degradedReason)}\n`);
   }
   for (const span of result.phases) {
-    w(`phase.${span.name}=${span.durationMs}ms\n`);
+    w(`${chalk.dim(`phase.${span.name}`)}=${span.durationMs}ms\n`);
   }
 }

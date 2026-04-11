@@ -3,3 +3,4 @@ dist/
 coverage/
 .rikyu/sessions/
 *.log
+rikyu.sarif

@@ -11,7 +11,6 @@
  */
 
 import type { Agent, AgentResult, AgentRunOptions } from "../agent/types.js";
-import { ProviderError } from "../agent/types.js";
 import { runSubprocess, estimateTokens } from "../agent/subprocess.js";
 import type { TeishuResponse } from "./schema.js";
 import { TeishuResponseSchema } from "./schema.js";
