@@ -1,27 +1,38 @@
-const secretPatterns: RegExp[] = [
-  /\b(sk-[A-Za-z0-9_-]{8,})\b/g,
-  /\b(xox[baprs]-[A-Za-z0-9-]{8,})\b/g,
-  /\b(gh[pousr]_[A-Za-z0-9_]{8,})\b/g,
-  /\b([A-Za-z0-9_]*api[_-]?key[A-Za-z0-9_]*\s*[:=]\s*)["']?([^"'\s]+)["']?/gi,
-  /\b([A-Za-z0-9_]*token[A-Za-z0-9_]*\s*[:=]\s*)["']?([^"'\s]+)["']?/gi,
+/**
+ * Secret redaction — 清 (sei, purity).
+ *
+ * "Redact secrets, tokens, and credentials before including in output."
+ */
+
+const SECRET_PATTERNS = [
+  /\b(sk-[a-zA-Z0-9]{20,})\b/g,
+  /\b(ghp_[a-zA-Z0-9]{36,})\b/g,
+  /\b(gho_[a-zA-Z0-9]{36,})\b/g,
+  /\b(xoxb-[a-zA-Z0-9-]+)\b/g,
+  /\b(xoxp-[a-zA-Z0-9-]+)\b/g,
+  /\b(Bearer\s+[a-zA-Z0-9._-]{20,})\b/gi,
 ];
 
 export function redactSecrets(text: string): string {
-  return secretPatterns.reduce((value, pattern) => {
-    if (pattern.source.includes("[:=]")) {
-      return value.replace(pattern, "$1[REDACTED]");
-    }
-    return value.replace(pattern, "[REDACTED]");
-  }, text);
+  let result = text;
+  for (const pattern of SECRET_PATTERNS) {
+    result = result.replace(pattern, (match) => {
+      const prefix = match.slice(0, 6);
+      return `${prefix}${"*".repeat(Math.min(match.length - 6, 20))}`;
+    });
+  }
+  return result;
 }
 
-export function redactJsonValue<T>(value: T): T {
-  if (typeof value === "string") return redactSecrets(value) as T;
-  if (Array.isArray(value)) return value.map((item) => redactJsonValue(item)) as T;
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [key, redactJsonValue(nested)]),
-    ) as T;
+export function redactJsonValues(obj: unknown): unknown {
+  if (typeof obj === "string") return redactSecrets(obj);
+  if (Array.isArray(obj)) return obj.map(redactJsonValues);
+  if (obj !== null && typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      result[key] = redactJsonValues(value);
+    }
+    return result;
   }
-  return value;
+  return obj;
 }

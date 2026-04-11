@@ -1,120 +1,87 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { loadConfig, setConfigValue } from "../src/config/loader.js";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
-import { ConfigError, getConfigValue, loadRikyuConfig, setConfigValue } from "../src/config/loader.js";
-import { defaultRikyuConfig } from "../src/config/schema.js";
-
-let dir: string;
+let tmpDir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "rikyu-config-test-"));
+  tmpDir = await mkdtemp(join(tmpdir(), "rikyu-config-test-"));
 });
 
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+  await rm(tmpDir, { recursive: true });
 });
 
-describe("loadRikyuConfig", () => {
-  it("returns defaults when config files are missing", async () => {
-    const loaded = await loadRikyuConfig({
-      globalConfigPath: join(dir, "global.json"),
-      projectConfigPath: join(dir, "project.json"),
-    });
+describe("loadConfig", () => {
+  it("returns defaults when no config files exist", async () => {
+    const result = await loadConfig({ cwd: tmpDir });
 
-    expect(loaded.config).toEqual(defaultRikyuConfig);
-    expect(loaded.sources).toEqual({});
+    expect(result.config.mode).toBe("auto");
+    expect(result.config.verbose).toBe(false);
+    expect(result.config.json).toBe(false);
+    expect(result.config.progress).toBe(true);
+    expect(result.config.policyProfile).toBe("balanced");
+    expect(result.sources).toEqual([]);
   });
 
-  it("loads and merges global and project config with project priority", async () => {
-    const globalConfigPath = join(dir, "global.json");
-    const projectConfigPath = join(dir, "project.json");
-    await writeFile(globalConfigPath, JSON.stringify({ mode: "quick", verbose: true }), "utf8");
-    await writeFile(projectConfigPath, JSON.stringify({ mode: "deep", progress: false }), "utf8");
-
-    const loaded = await loadRikyuConfig({ globalConfigPath, projectConfigPath });
-
-    expect(loaded.config).toEqual({
-      mode: "deep",
-      verbose: true,
-      json: false,
-      progress: false,
-      policyProfile: "balanced",
-    });
-    expect(loaded.sources).toEqual({
-      global: globalConfigPath,
-      project: projectConfigPath,
-    });
-  });
-
-  it("accepts partial config files", async () => {
-    const projectConfigPath = join(dir, "project.json");
-    await writeFile(projectConfigPath, JSON.stringify({ json: true }), "utf8");
-
-    const loaded = await loadRikyuConfig({
-      globalConfigPath: join(dir, "missing.json"),
-      projectConfigPath,
-    });
-
-    expect(loaded.config).toEqual({
-      ...defaultRikyuConfig,
-      json: true,
-    });
-  });
-
-  it("throws ConfigError for invalid JSON", async () => {
-    const projectConfigPath = join(dir, "project.json");
-    await writeFile(projectConfigPath, "{", "utf8");
-
-    await expect(
-      loadRikyuConfig({
-        globalConfigPath: join(dir, "missing.json"),
-        projectConfigPath,
-      }),
-    ).rejects.toMatchObject({
-      code: "INVALID_JSON",
-      path: projectConfigPath,
-    });
-  });
-
-  it("throws ConfigError for invalid values", async () => {
-    const projectConfigPath = join(dir, "project.json");
-    await writeFile(projectConfigPath, JSON.stringify({ mode: "slow" }), "utf8");
-
-    await expect(
-      loadRikyuConfig({
-        globalConfigPath: join(dir, "missing.json"),
-        projectConfigPath,
-      }),
-    ).rejects.toBeInstanceOf(ConfigError);
-  });
-});
-
-describe("config set/get", () => {
-  it("sets and gets values", async () => {
-    const projectConfigPath = join(dir, ".rikyu", "config.json");
-
-    await setConfigValue(projectConfigPath, "mode", "standard");
-    await setConfigValue(projectConfigPath, "verbose", "true");
-    await setConfigValue(projectConfigPath, "policyProfile", "strict");
-
-    const loaded = await loadRikyuConfig({
-      globalConfigPath: join(dir, "missing.json"),
-      projectConfigPath,
-    });
-    const text = await readFile(projectConfigPath, "utf8");
-
-    expect(JSON.parse(text)).toEqual({ mode: "standard", verbose: true, policyProfile: "strict" });
-    expect(getConfigValue(loaded.config, "mode")).toBe("standard");
-    expect(getConfigValue(loaded.config, "verbose")).toBe(true);
-    expect(getConfigValue(loaded.config, "policyProfile")).toBe("strict");
-  });
-
-  it("rejects invalid set values", async () => {
-    await expect(setConfigValue(join(dir, "config.json"), "progress", "yes")).rejects.toThrow(
-      'Expected "true" or "false" for progress',
+  it("reads project config and merges with defaults", async () => {
+    const configDir = join(tmpDir, ".rikyu");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(
+      join(configDir, "config.json"),
+      JSON.stringify({ mode: "deep", verbose: true }),
+      "utf8",
     );
+
+    const result = await loadConfig({ cwd: tmpDir });
+
+    expect(result.config.mode).toBe("deep");
+    expect(result.config.verbose).toBe(true);
+    // Defaults fill in the rest
+    expect(result.config.json).toBe(false);
+    expect(result.config.progress).toBe(true);
+    expect(result.sources).toHaveLength(1);
+  });
+
+  it("partial config works and fills in defaults", async () => {
+    const configDir = join(tmpDir, ".rikyu");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(
+      join(configDir, "config.json"),
+      JSON.stringify({ policyProfile: "strict" }),
+      "utf8",
+    );
+
+    const result = await loadConfig({ cwd: tmpDir });
+
+    expect(result.config.policyProfile).toBe("strict");
+    expect(result.config.mode).toBe("auto");
+    expect(result.config.verbose).toBe(false);
+  });
+});
+
+describe("setConfigValue", () => {
+  it("writes a valid config value and can be loaded back", async () => {
+    await setConfigValue("mode", "quick", { cwd: tmpDir });
+
+    const result = await loadConfig({ cwd: tmpDir });
+    expect(result.config.mode).toBe("quick");
+  });
+
+  it("validates before writing (rejects invalid values)", async () => {
+    await expect(
+      setConfigValue("mode", "invalid-mode", { cwd: tmpDir }),
+    ).rejects.toThrow();
+  });
+
+  it("preserves existing values when setting a new key", async () => {
+    await setConfigValue("mode", "deep", { cwd: tmpDir });
+    await setConfigValue("verbose", "true", { cwd: tmpDir });
+
+    const result = await loadConfig({ cwd: tmpDir });
+    expect(result.config.mode).toBe("deep");
+    expect(result.config.verbose).toBe(true);
   });
 });

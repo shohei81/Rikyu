@@ -1,72 +1,83 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTeishuResponse } from "../src/teishu/parse.js";
-import { ProviderError } from "../src/providers/types.js";
+import { parseTeishuOutput } from "../src/teishu/agent.js";
 
-describe("parseTeishuResponse", () => {
-  it("parses a valid response with leading text", () => {
-    expect(
-      parseTeishuResponse(
-        'noise\n{"output":"Done","needsMoreFromMizuya":false,"followUpQuestion":"Check tests?"}',
-      ),
-    ).toEqual({
-      output: "Done",
-      needsMoreFromMizuya: false,
-      followUpQuestion: "Check tests?",
-    });
+const validResponse = {
+  output: "Here is the answer.",
+  needsMoreFromMizuya: false,
+};
+
+describe("parseTeishuOutput", () => {
+  it("extracts JSON from text with noise", () => {
+    const stdout = `Some preamble\n${JSON.stringify(validResponse)}\ntrailer`;
+    const result = parseTeishuOutput(stdout);
+    expect(result).toMatchObject(validResponse);
   });
 
-  it("parses Claude Code JSON output envelopes", () => {
-    expect(
-      parseTeishuResponse(
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          result: '{"output":"Done from envelope","needsMoreFromMizuya":false}',
-        }),
-      ),
-    ).toEqual({
-      output: "Done from envelope",
-      needsMoreFromMizuya: false,
-    });
+  it("parses Claude envelope format and unwraps result", () => {
+    const inner = { output: "hi", needsMoreFromMizuya: false };
+    const envelope = {
+      result: JSON.stringify(inner),
+      session_id: "abc-123",
+    };
+    const stdout = JSON.stringify(envelope);
+    const result = parseTeishuOutput(stdout);
+
+    expect(result.output).toBe("hi");
+    expect(result.needsMoreFromMizuya).toBe(false);
+    expect(result.sessionId).toBe("abc-123");
   });
 
-  it("uses Claude Code envelope result text when the model does not return JSON", () => {
-    expect(
-      parseTeishuResponse(
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          result: "Plain response text.",
-        }),
-      ),
-    ).toEqual({
-      output: "Plain response text.",
+  it("falls back to plain text when no JSON is found", () => {
+    const stdout = "This is a plain text response with no braces";
+    const result = parseTeishuOutput(stdout);
+    expect(result).toEqual({
+      output: "This is a plain text response with no braces",
       needsMoreFromMizuya: false,
     });
   });
 
-  it("uses Claude Code envelope result text when nested JSON is not a TeishuResponse", () => {
-    const result = 'Created `docs/hoge.md` with content {"example":"hoge"}.';
-
-    expect(
-      parseTeishuResponse(
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          result,
-        }),
-      ),
-    ).toEqual({
-      output: result,
-      needsMoreFromMizuya: false,
-    });
+  it("falls back to plain text for JSON that does not match schema", () => {
+    const stdout = JSON.stringify({ wrong: "shape" });
+    const result = parseTeishuOutput(stdout);
+    expect(result.output).toBe(stdout);
+    expect(result.needsMoreFromMizuya).toBe(false);
   });
 
-  it("throws ProviderError for invalid response shape", () => {
-    expect(() => parseTeishuResponse('{"output":"Done"}')).toThrow(ProviderError);
+  it("falls back to plain text when response contains braces in prose", () => {
+    const stdout = "Here is a tip: use {destructuring} for clarity.";
+    const result = parseTeishuOutput(stdout);
+    expect(result.output).toBe(stdout);
+    expect(result.needsMoreFromMizuya).toBe(false);
+  });
+
+  it("strips markdown code fences and parses JSON inside", () => {
+    const inner = { output: "Hello!", needsMoreFromMizuya: false, followUpQuestion: null };
+    const stdout = "```json\n" + JSON.stringify(inner, null, 2) + "\n```";
+    const result = parseTeishuOutput(stdout);
+    expect(result.output).toBe("Hello!");
+    expect(result.needsMoreFromMizuya).toBe(false);
+  });
+
+  it("accepts null for followUpQuestion", () => {
+    const stdout = JSON.stringify({
+      output: "Done.",
+      needsMoreFromMizuya: false,
+      followUpQuestion: null,
+    });
+    const result = parseTeishuOutput(stdout);
+    expect(result.output).toBe("Done.");
+    expect(result.followUpQuestion).toBeNull();
+  });
+
+  it("handles Claude envelope with markdown code fence inside result", () => {
+    const inner = { output: "Review complete.", needsMoreFromMizuya: false };
+    const envelope = {
+      result: "```json\n" + JSON.stringify(inner) + "\n```",
+      session_id: "s-42",
+    };
+    const result = parseTeishuOutput(JSON.stringify(envelope));
+    expect(result.output).toBe("Review complete.");
+    expect(result.sessionId).toBe("s-42");
   });
 });

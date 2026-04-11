@@ -1,54 +1,62 @@
-import type { CollaborationResult } from "../collaboration/flow.js";
-import type { SessionBrief } from "../session/brief.js";
-import { redactJsonValue } from "./redaction.js";
+/**
+ * JSON output formatter.
+ */
+
+import type { ChajiResult } from "../hanto/orchestrator.js";
+import type { SessionBrief } from "../chaji/types.js";
+import { redactJsonValues } from "./redaction.js";
+
+export interface JsonOutputOptions {
+  brief: SessionBrief;
+  sessionId?: string;
+  totalMs?: number;
+  classificationMs?: number;
+}
 
 export interface RikyuJsonOutput {
-  sessionId: string;
+  sessionId?: string;
   requestId: string;
-  task: SessionBrief["task"];
+  task: string;
   output: string;
-  mizuyaResponse: CollaborationResult["mizuyaResponse"] | null;
+  mizuya?: unknown;
   degraded: boolean;
-  unavailableProviders: string[];
-  metadata: {
-    totalMs: number;
-    mode?: SessionBrief["mode"];
-    degradedReason?: string;
+  degradedReason?: string;
+  timing: {
+    totalMs?: number;
+    classificationMs?: number;
+    mizuyaMs?: number;
+    teishuMs?: number;
   };
 }
 
-export interface RenderJsonOutputOptions {
-  sessionId?: string;
-  brief: SessionBrief;
-  totalMs: number;
-}
-
-export function renderJsonOutput(
-  result: CollaborationResult,
-  options: RenderJsonOutputOptions,
+export function formatJson(
+  result: ChajiResult,
+  options: JsonOutputOptions,
 ): string {
   const output: RikyuJsonOutput = {
-    sessionId: options.sessionId ?? "standalone",
-    requestId: result.requestId,
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    requestId: result.id,
     task: options.brief.task,
     output: result.output,
-    mizuyaResponse: result.mizuyaResponse ?? null,
+    ...(result.mizuya ? { mizuya: result.mizuya } : {}),
     degraded: result.degraded,
-    unavailableProviders: result.degradedReason ? [result.degradedReason.split(":", 1)[0] ?? "unknown"] : [],
-    metadata: {
+    ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
+    timing: {
       totalMs: options.totalMs,
-      ...(options.brief.mode ? { mode: options.brief.mode } : {}),
-      ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
+      classificationMs: options.classificationMs,
+      mizuyaMs: sumPhaseDuration(result, "shoza"),
+      teishuMs: sumPhaseDuration(result, "goza"),
     },
   };
 
-  return `${JSON.stringify(redactJsonValue(output), null, 2)}\n`;
+  return JSON.stringify(redactJsonValues(output), null, 2) + "\n";
 }
 
-export function writeJsonOutput(
-  result: CollaborationResult,
-  options: RenderJsonOutputOptions,
-  writer: (text: string) => void = (text) => process.stdout.write(text),
-): void {
-  writer(renderJsonOutput(result, options));
+function sumPhaseDuration(
+  result: ChajiResult,
+  prefix: string,
+): number | undefined {
+  const matching = result.phases.filter((p) => p.name.startsWith(prefix));
+  if (matching.length === 0) return undefined;
+  return matching.reduce((sum, p) => sum + p.durationMs, 0);
 }

@@ -1,118 +1,108 @@
-import { z } from "zod";
+/**
+ * SARIF v2.1.0 output — for CI/CD code scanning integration.
+ */
 
-import type { CollaborationResult } from "../collaboration/flow.js";
-import type { MizuyaFinding, MizuyaResponse } from "../mizuya/schema.js";
-import { redactJsonValue } from "./redaction.js";
+import type { ChajiResult } from "../hanto/orchestrator.js";
+import type { MizuyaFinding } from "../mizuya/schema.js";
+import { redactJsonValues } from "./redaction.js";
 
-export const sarifLogSchema = z
-  .object({
-    version: z.literal("2.1.0"),
-    $schema: z.literal("https://json.schemastore.org/sarif-2.1.0.json"),
-    runs: z
-      .array(
-        z
-          .object({
-            tool: z.object({
-              driver: z.object({
-                name: z.string().min(1),
-                informationUri: z.string().url().optional(),
-                rules: z.array(z.unknown()),
-              }),
-            }),
-            results: z.array(z.unknown()),
-          })
-          .passthrough(),
-      )
-      .min(1),
-  })
-  .passthrough();
-
-export interface SarifOutputOptions {
-  toolName?: string;
-  informationUri?: string;
+interface SarifLog {
+  $schema: string;
+  version: string;
+  runs: SarifRun[];
 }
 
-export type SarifLog = z.infer<typeof sarifLogSchema>;
+interface SarifRun {
+  tool: { driver: { name: string; version: string; rules: SarifRule[] } };
+  results: SarifResult[];
+}
 
-export function mizuyaResponseToSarif(
-  response: MizuyaResponse | undefined,
-  options: SarifOutputOptions = {},
-): SarifLog {
-  const findings = response?.findings ?? [];
-  const rules = [...new Map(findings.map((finding) => [finding.ruleId, finding])).values()].map(
-    findingToRule,
-  );
-  const log = {
+interface SarifRule {
+  id: string;
+  shortDescription: { text: string };
+  properties?: Record<string, unknown>;
+}
+
+interface SarifResult {
+  ruleId: string;
+  level: string;
+  message: { text: string };
+  locations?: SarifLocation[];
+  properties?: Record<string, unknown>;
+}
+
+interface SarifLocation {
+  physicalLocation: {
+    artifactLocation: { uri: string };
+    region?: { startLine: number };
+  };
+}
+
+export function formatSarif(result: ChajiResult): string {
+  const findings = result.mizuya?.findings ?? [];
+
+  const sarif: SarifLog = {
+    $schema:
+      "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
     version: "2.1.0",
-    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
     runs: [
       {
         tool: {
           driver: {
-            name: options.toolName ?? "Rikyu",
-            informationUri: options.informationUri ?? "https://github.com/shohei81/Rikyu",
-            rules,
+            name: "rikyu",
+            version: "0.0.0",
+            rules: deduplicateRules(findings),
           },
         },
-        results: findings.map((finding) => findingToResult(finding, response)),
+        results: findings.map(toSarifResult),
       },
     ],
-  } satisfies SarifLog;
-
-  return sarifLogSchema.parse(log);
-}
-
-export function renderSarifOutput(result: CollaborationResult): string {
-  return `${JSON.stringify(redactJsonValue(mizuyaResponseToSarif(result.mizuyaResponse)), null, 2)}\n`;
-}
-
-export function writeSarifOutput(
-  result: CollaborationResult,
-  writer: (text: string) => void,
-): void {
-  writer(renderSarifOutput(result));
-}
-
-function findingToRule(finding: MizuyaFinding) {
-  return {
-    id: finding.ruleId,
-    shortDescription: { text: finding.ruleId },
-    fullDescription: { text: finding.message },
-    properties: {
-      confidence: finding.confidence,
-    },
   };
+
+  return JSON.stringify(redactJsonValues(sarif), null, 2) + "\n";
 }
 
-function findingToResult(finding: MizuyaFinding, response: MizuyaResponse | undefined) {
-  return {
+function deduplicateRules(findings: MizuyaFinding[]): SarifRule[] {
+  const seen = new Map<string, SarifRule>();
+  for (const f of findings) {
+    if (!seen.has(f.ruleId)) {
+      seen.set(f.ruleId, {
+        id: f.ruleId,
+        shortDescription: { text: f.message },
+        properties: { confidence: f.confidence },
+      });
+    }
+  }
+  return [...seen.values()];
+}
+
+function toSarifResult(finding: MizuyaFinding): SarifResult {
+  const result: SarifResult = {
     ruleId: finding.ruleId,
     level: finding.level,
     message: { text: finding.message },
-    locations: finding.location ? [findingToLocation(finding)] : [],
     properties: {
-      evidence: finding.evidence,
-      ...(finding.inference ? { inference: finding.inference } : {}),
-      ...(finding.suggestedAction ? { suggestedAction: finding.suggestedAction } : {}),
       confidence: finding.confidence,
-      ...(response ? { requestId: response.requestId, summary: response.summary } : {}),
-    },
-  };
-}
-
-function findingToLocation(finding: MizuyaFinding) {
-  return {
-    physicalLocation: {
-      artifactLocation: {
-        uri: finding.location?.file,
-      },
-      ...(finding.location?.startLine
-        ? {
-            region: {
-              startLine: finding.location.startLine,
-            },
-          }
+      ...(finding.evidence.length > 0 ? { evidence: finding.evidence } : {}),
+      ...(finding.inference ? { inference: finding.inference } : {}),
+      ...(finding.suggestedAction
+        ? { suggestedAction: finding.suggestedAction }
         : {}),
     },
   };
+
+  if (finding.location) {
+    result.locations = [
+      {
+        physicalLocation: {
+          artifactLocation: { uri: finding.location.file },
+          ...(finding.location.startLine !== undefined
+            ? { region: { startLine: finding.location.startLine } }
+            : {}),
+        },
+      },
+    ];
+  }
+
+  return result;
 }

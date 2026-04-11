@@ -1,69 +1,108 @@
 import { describe, expect, it } from "vitest";
 
-import { mizuyaResponseSchema } from "../src/mizuya/schema.js";
+import { MizuyaResponseSchema, MizuyaFindingSchema } from "../src/mizuya/schema.js";
+
+const fullFinding = {
+  ruleId: "null-check",
+  level: "warning",
+  message: "Missing null handling",
+  location: { file: "src/example.ts", startLine: 12 },
+  evidence: ["value can be undefined"],
+  inference: "This can throw at runtime.",
+  suggestedAction: "Add a guard.",
+  confidence: "high",
+};
 
 const baseResponse = {
   requestId: "req-1",
-  findings: [
-    {
-      ruleId: "null-check",
-      level: "warning",
-      message: "Missing null handling",
-      location: { file: "src/example.ts", startLine: 12 },
-      evidence: ["value can be undefined"],
-      inference: "This can throw at runtime.",
-      suggestedAction: "Add a guard.",
-      confidence: "high",
-    },
-  ],
+  findings: [fullFinding],
   summary: "One warning found.",
   doubts: [],
   contextUsed: ["src/example.ts"],
 };
 
-describe("mizuyaResponseSchema", () => {
-  it("accepts a valid response", () => {
-    expect(mizuyaResponseSchema.parse(baseResponse)).toEqual(baseResponse);
+describe("MizuyaResponseSchema", () => {
+  it("accepts a valid response with full finding", () => {
+    const parsed = MizuyaResponseSchema.parse(baseResponse);
+    expect(parsed).toEqual(baseResponse);
   });
 
-  it("accepts empty findings for ask and explain tasks", () => {
-    const parsed = mizuyaResponseSchema.parse({
+  it("accepts empty findings array", () => {
+    const input = {
       ...baseResponse,
       findings: [],
-      summary: "The code initializes the CLI.",
-    });
-
+      summary: "No issues found.",
+    };
+    const parsed = MizuyaResponseSchema.parse(input);
     expect(parsed.findings).toEqual([]);
   });
 
-  it("rejects unknown top-level fields", () => {
+  it("rejects missing required fields", () => {
+    // Missing requestId
     expect(() =>
-      mizuyaResponseSchema.parse({
-        ...baseResponse,
-        extra: true,
+      MizuyaResponseSchema.parse({
+        findings: [],
+        summary: "ok",
+        doubts: [],
+        contextUsed: [],
+      }),
+    ).toThrow();
+
+    // Missing summary
+    expect(() =>
+      MizuyaResponseSchema.parse({
+        requestId: "req-1",
+        findings: [],
+        doubts: [],
+        contextUsed: [],
+      }),
+    ).toThrow();
+
+    // Missing findings
+    expect(() =>
+      MizuyaResponseSchema.parse({
+        requestId: "req-1",
+        summary: "ok",
+        doubts: [],
+        contextUsed: [],
       }),
     ).toThrow();
   });
 
-  it("rejects missing required finding fields", () => {
-    const findingWithoutEvidence: Partial<(typeof baseResponse.findings)[number]> = {
-      ...baseResponse.findings[0],
+  it("rejects invalid level values", () => {
+    const badFinding = { ...fullFinding, level: "critical" };
+    expect(() =>
+      MizuyaResponseSchema.parse({
+        ...baseResponse,
+        findings: [badFinding],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("MizuyaFindingSchema", () => {
+  it("accepts finding without optional fields", () => {
+    const minimal = {
+      ruleId: "test-rule",
+      level: "note",
+      message: "Something to note",
+      evidence: [],
+      confidence: "low",
     };
-    delete findingWithoutEvidence.evidence;
-
-    expect(() =>
-      mizuyaResponseSchema.parse({
-        ...baseResponse,
-        findings: [findingWithoutEvidence],
-      }),
-    ).toThrow();
+    const parsed = MizuyaFindingSchema.parse(minimal);
+    expect(parsed.location).toBeUndefined();
+    expect(parsed.inference).toBeUndefined();
+    expect(parsed.suggestedAction).toBeUndefined();
   });
 
-  it("rejects invalid levels", () => {
+  it("rejects invalid confidence values", () => {
     expect(() =>
-      mizuyaResponseSchema.parse({
-        ...baseResponse,
-        findings: [{ ...baseResponse.findings[0], level: "info" }],
+      MizuyaFindingSchema.parse({
+        ruleId: "test-rule",
+        level: "error",
+        message: "bad",
+        evidence: [],
+        confidence: "very-high",
       }),
     ).toThrow();
   });

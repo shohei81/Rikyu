@@ -1,137 +1,99 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+/**
+ * Configuration loader — merges global → project settings,
+ * like how Urasenke practice layers personal style on top of
+ * the iemoto's canonical forms.
+ */
+
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { RikyuConfigSchema, type RikyuConfig } from "./schema.js";
 
-import { z } from "zod";
+const GLOBAL_CONFIG_PATH = join(homedir(), ".config", "rikyu", "config.json");
+const PROJECT_CONFIG_DIR = ".rikyu";
+const PROJECT_CONFIG_FILE = "config.json";
 
-import {
-  defaultRikyuConfig,
-  parseConfigKey,
-  parseConfigValue,
-  partialRikyuConfigSchema,
-  rikyuConfigSchema,
-  type ConfigKey,
-  type PartialRikyuConfig,
-  type RikyuConfig,
-} from "./schema.js";
-
-export type ConfigErrorCode = "INVALID_JSON" | "INVALID_CONFIG" | "WRITE_FAILED";
-
-export class ConfigError extends Error {
-  readonly code: ConfigErrorCode;
-  readonly path: string;
-
-  constructor(code: ConfigErrorCode, path: string, message: string, cause?: unknown) {
-    super(message, { cause });
-    this.name = "ConfigError";
-    this.code = code;
-    this.path = path;
-  }
-}
-
-export interface LoadConfigOptions {
-  cwd?: string;
-  globalConfigPath?: string;
-  projectConfigPath?: string;
-}
-
-export interface LoadedRikyuConfig {
+export interface LoadConfigResult {
   config: RikyuConfig;
-  sources: {
-    global?: string;
-    project?: string;
-  };
+  sources: string[];
 }
 
-export function getGlobalConfigPath(): string {
-  return join(homedir(), ".config", "rikyu", "config.json");
-}
+export async function loadConfig(options?: {
+  cwd?: string;
+}): Promise<LoadConfigResult> {
+  const sources: string[] = [];
+  let merged: Record<string, unknown> = {};
 
-export function getProjectConfigPath(cwd = process.cwd()): string {
-  return join(cwd, ".rikyu", "config.json");
-}
+  // Global config (~/.config/rikyu/config.json)
+  try {
+    const raw = JSON.parse(await readFile(GLOBAL_CONFIG_PATH, "utf8")) as Record<string, unknown>;
+    merged = { ...merged, ...raw };
+    sources.push(GLOBAL_CONFIG_PATH);
+  } catch {
+    /* no global config */
+  }
 
-export async function loadRikyuConfig(
-  options: LoadConfigOptions = {},
-): Promise<LoadedRikyuConfig> {
-  const globalConfigPath = options.globalConfigPath ?? getGlobalConfigPath();
-  const projectConfigPath = options.projectConfigPath ?? getProjectConfigPath(options.cwd);
-  const globalConfig = await readConfigFile(globalConfigPath);
-  const projectConfig = await readConfigFile(projectConfigPath);
+  // Project config (.rikyu/config.json)
+  const projectPath = join(
+    options?.cwd ?? process.cwd(),
+    PROJECT_CONFIG_DIR,
+    PROJECT_CONFIG_FILE,
+  );
+  try {
+    const raw = JSON.parse(await readFile(projectPath, "utf8")) as Record<string, unknown>;
+    merged = { ...merged, ...raw };
+    sources.push(projectPath);
+  } catch {
+    /* no project config */
+  }
 
   return {
-    config: mergeRikyuConfig(globalConfig, projectConfig),
-    sources: {
-      ...(globalConfig ? { global: globalConfigPath } : {}),
-      ...(projectConfig ? { project: projectConfigPath } : {}),
-    },
+    config: RikyuConfigSchema.parse(merged),
+    sources,
   };
-}
-
-export function mergeRikyuConfig(
-  globalConfig: PartialRikyuConfig | undefined,
-  projectConfig: PartialRikyuConfig | undefined,
-): RikyuConfig {
-  return rikyuConfigSchema.parse({
-    ...defaultRikyuConfig,
-    ...(globalConfig ?? {}),
-    ...(projectConfig ?? {}),
-  });
-}
-
-export async function readConfigFile(path: string): Promise<PartialRikyuConfig | undefined> {
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch (cause) {
-    if (isNodeError(cause) && cause.code === "ENOENT") return undefined;
-    throw cause;
-  }
-
-  let json: unknown;
-  try {
-    json = JSON.parse(text) as unknown;
-  } catch (cause) {
-    throw new ConfigError("INVALID_JSON", path, `Invalid JSON in ${path}`, cause);
-  }
-
-  try {
-    return partialRikyuConfigSchema.parse(json);
-  } catch (cause) {
-    if (cause instanceof z.ZodError) {
-      throw new ConfigError("INVALID_CONFIG", path, `Invalid Rikyu config in ${path}`, cause);
-    }
-    throw cause;
-  }
 }
 
 export async function setConfigValue(
-  path: string,
   key: string,
-  rawValue: string,
-): Promise<PartialRikyuConfig> {
-  const parsedKey = parseConfigKey(key);
-  const parsedValue = parseConfigValue(parsedKey, rawValue);
-  const currentConfig = (await readConfigFile(path)) ?? {};
-  const nextConfig = partialRikyuConfigSchema.parse({
-    ...currentConfig,
-    [parsedKey]: parsedValue,
-  });
+  value: string,
+  options?: { cwd?: string; global?: boolean },
+): Promise<void> {
+  const path = options?.global
+    ? GLOBAL_CONFIG_PATH
+    : join(
+        options?.cwd ?? process.cwd(),
+        PROJECT_CONFIG_DIR,
+        PROJECT_CONFIG_FILE,
+      );
 
+  let existing: Record<string, unknown> = {};
   try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
-  } catch (cause) {
-    throw new ConfigError("WRITE_FAILED", path, `Could not write Rikyu config to ${path}`, cause);
+    existing = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  } catch {
+    /* new config */
   }
 
-  return nextConfig;
+  existing[key] = parseConfigValue(value);
+
+  // Validate before persisting
+  RikyuConfigSchema.parse(existing);
+
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(existing, null, 2), "utf8");
 }
 
-export function getConfigValue(config: RikyuConfig, key: string): RikyuConfig[ConfigKey] {
-  return config[parseConfigKey(key)];
+export async function getConfigValue(
+  key: string,
+  options?: { cwd?: string },
+): Promise<unknown> {
+  const { config } = await loadConfig(options);
+  return (config as unknown as Record<string, unknown>)[key];
 }
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
+function parseConfigValue(value: string): unknown {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  const num = Number(value);
+  if (!Number.isNaN(num)) return num;
+  return value;
 }

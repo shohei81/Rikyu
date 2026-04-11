@@ -1,54 +1,48 @@
 import { describe, expect, it } from "vitest";
 
-import { extractJsonObject, parseMizuyaResponse } from "../src/mizuya/parse.js";
-import { ProviderError } from "../src/providers/types.js";
+import { parseMizuyaOutput } from "../src/mizuya/agent.js";
 
-const response = {
+const validResponse = {
   requestId: "req-1",
-  findings: [],
-  summary: "No findings.",
+  findings: [
+    {
+      ruleId: "null-check",
+      level: "warning",
+      message: "Missing null handling",
+      evidence: ["value can be undefined"],
+      confidence: "high",
+    },
+  ],
+  summary: "One warning found.",
   doubts: [],
-  contextUsed: [],
+  contextUsed: ["src/example.ts"],
 };
 
-describe("extractJsonObject", () => {
-  it("extracts the first complete object from mixed output", () => {
-    const raw = `Preparing...\n${JSON.stringify(response)}\nDone`;
-
-    expect(extractJsonObject(raw)).toBe(JSON.stringify(response));
+describe("parseMizuyaOutput", () => {
+  it("extracts JSON from text with leading/trailing noise", () => {
+    const stdout = `Here is my analysis:\n${JSON.stringify(validResponse)}\nDone.`;
+    const result = parseMizuyaOutput(stdout);
+    expect(result).toEqual(validResponse);
   });
 
-  it("does not stop on braces inside strings", () => {
-    const raw = JSON.stringify({
-      ...response,
-      summary: "A string with { braces } inside.",
-    });
-
-    expect(extractJsonObject(raw)).toBe(raw);
+  it("handles JSON with braces inside string values", () => {
+    const response = {
+      ...validResponse,
+      summary: 'Found pattern like if (x) { y } in code',
+    };
+    const stdout = `prefix ${JSON.stringify(response)} suffix`;
+    const result = parseMizuyaOutput(stdout);
+    expect(result.summary).toBe('Found pattern like if (x) { y } in code');
   });
 
-  it("returns undefined for truncated JSON", () => {
-    expect(extractJsonObject('noise {"requestId": "req-1"')).toBeUndefined();
-  });
-});
-
-describe("parseMizuyaResponse", () => {
-  it("parses a valid response with leading text", () => {
-    expect(parseMizuyaResponse(`text\n${JSON.stringify(response)}`)).toEqual(response);
+  it("throws on no JSON object found", () => {
+    expect(() => parseMizuyaOutput("no json here at all")).toThrow(
+      "No JSON object found",
+    );
   });
 
-  it("throws ProviderError when no object exists", () => {
-    expect(() => parseMizuyaResponse("no json")).toThrow(ProviderError);
-  });
-
-  it("throws ProviderError for schema violations", () => {
-    expect(() =>
-      parseMizuyaResponse(
-        JSON.stringify({
-          ...response,
-          findings: [{ level: "warning" }],
-        }),
-      ),
-    ).toThrow(ProviderError);
+  it("throws on invalid schema", () => {
+    const bad = JSON.stringify({ foo: "bar" });
+    expect(() => parseMizuyaOutput(bad)).toThrow();
   });
 });
