@@ -297,6 +297,13 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
       const input = line.trim();
       if (!input) return;
 
+      // Bare exit/quit without /
+      if (/^(exit|quit|q)$/i.test(input)) {
+        console.log(chalk.dim("\n  お先に失礼します。\n"));
+        rl.close();
+        return;
+      }
+
       // Slash command
       if (input.startsWith("/")) {
         const [cmdName, ...rest] = input.slice(1).split(/\s+/);
@@ -505,18 +512,26 @@ async function selectPermission(current: ToolPermission): Promise<ToolPermission
   });
 }
 
-// ── ESC key listener ────────────────────────────────────
+// ── ESC / Ctrl-C key listener ───────────────────────────
+//
+// readline holds data listeners on stdin even when paused.
+// We temporarily evict them so our raw-mode listener is the
+// sole consumer, then restore on cleanup.
 
 function listenForEsc(callback: () => void): () => void {
   const stdin = process.stdin;
   if (!stdin.isTTY || !stdin.setRawMode) return () => {};
 
+  // Evict readline's listeners
+  const saved = stdin.rawListeners("data").slice();
+  stdin.removeAllListeners("data");
+
   stdin.setRawMode(true);
   stdin.resume();
 
   const onData = (data: Buffer) => {
-    // ESC = 0x1b as a single byte (not part of an escape sequence)
-    if (data.length === 1 && data[0] === 0x1b) {
+    // ESC (0x1b alone) or Ctrl-C (0x03)
+    if ((data.length === 1 && data[0] === 0x1b) || data[0] === 0x03) {
       callback();
     }
   };
@@ -524,10 +539,10 @@ function listenForEsc(callback: () => void): () => void {
 
   return () => {
     stdin.removeListener("data", onData);
-    try {
-      stdin.setRawMode(false);
-    } catch {
-      // stdin may already be destroyed
+    try { stdin.setRawMode(false); } catch { /* */ }
+    // Restore readline's listeners
+    for (const fn of saved) {
+      stdin.on("data", fn as (...args: unknown[]) => void);
     }
   };
 }
