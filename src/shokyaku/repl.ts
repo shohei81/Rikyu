@@ -245,12 +245,9 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
       resolve();
     });
 
-    const handleLine = async (line: string) => {
+    const handleLine = async (line: string): Promise<void> => {
       const input = line.trim();
-      if (!input) {
-        rl.prompt();
-        return;
-      }
+      if (!input) return;
 
       // Slash command
       if (input.startsWith("/")) {
@@ -270,20 +267,23 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
         } else {
           printInfo(`Unknown command: /${cmdName}. Type /help.`);
         }
-        rl.prompt();
         return;
       }
 
       // Natural language input
       await runTurn(input, state);
-      rl.prompt();
     };
 
     rl.on("line", (line) => {
-      handleLine(line).catch((err) => {
-        printError(err instanceof Error ? err.message : String(err));
-        rl.prompt();
-      });
+      rl.pause();
+      handleLine(line)
+        .catch((err) => {
+          printError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          rl.resume();
+          rl.prompt();
+        });
     });
 
     rl.prompt();
