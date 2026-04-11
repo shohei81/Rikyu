@@ -122,24 +122,10 @@ const slashCommands: SlashCommand[] = [
       };
       if (arg in levels) {
         state.toolPermission = levels[arg];
-      } else if (!arg) {
-        // Show current + help
-        console.log();
-        console.log(chalk.white.bold("  Tool Permissions"));
-        console.log();
-        for (const [name, desc] of [
-          ["safe", "read-only analysis (no tool use)"],
-          ["edit", "read + edit files (Read, Edit, Write, Glob, Grep)"],
-          ["full", "read + edit + run commands (+ Bash)"],
-        ] as const) {
-          const marker = state.toolPermission === name ? chalk.green("● ") : chalk.dim("○ ");
-          console.log(`  ${marker}${chalk.cyan(name.padEnd(6))} ${chalk.dim(desc)}`);
-        }
-        console.log(chalk.dim(`\n  Usage: /permissions safe|edit|full\n`));
-        return true;
       } else {
-        printInfo("Usage: /permissions [safe|edit|full]");
-        return true;
+        // Interactive selector
+        const selected = await selectPermission(state.toolPermission);
+        state.toolPermission = selected;
       }
       const labels: Record<ToolPermission, string> = {
         safe: chalk.yellow("safe") + chalk.dim(" — read-only analysis"),
@@ -443,6 +429,80 @@ function briefUnchanged(
 ): boolean {
   if (!previous) return false;
   return current.task === previous.task && current.target === previous.target;
+}
+
+// ── Interactive permission selector ─────────────────────
+
+const permissionOptions: Array<{
+  value: ToolPermission;
+  label: string;
+  description: string;
+}> = [
+  { value: "safe", label: "safe", description: "read-only analysis (no tool use)" },
+  { value: "edit", label: "edit", description: "read + edit files (Read, Edit, Write, Glob, Grep)" },
+  { value: "full", label: "full", description: "read + edit + run commands (+ Bash)" },
+];
+
+async function selectPermission(current: ToolPermission): Promise<ToolPermission> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || !stdin.setRawMode) return current;
+
+  let index = permissionOptions.findIndex((o) => o.value === current);
+
+  const render = (initial: boolean) => {
+    // Move cursor up to overwrite previous render (skip on first draw)
+    if (!initial) {
+      process.stdout.write(`\x1b[${permissionOptions.length}A`);
+    }
+    for (let i = 0; i < permissionOptions.length; i++) {
+      const o = permissionOptions[i];
+      const active = i === index;
+      const marker = active ? chalk.green("● ") : chalk.dim("○ ");
+      const name = active ? chalk.cyan.bold(o.label) : chalk.dim(o.label);
+      // Clear line, write, newline
+      process.stdout.write(`\x1b[2K  ${marker}${name.padEnd(16)} ${chalk.dim(o.description)}\n`);
+    }
+  };
+
+  console.log();
+  console.log(chalk.white.bold("  Permissions") + chalk.dim("  ↑↓ select  ⏎ confirm  esc cancel"));
+  console.log();
+  render(true);
+
+  return new Promise<ToolPermission>((resolve) => {
+    stdin.setRawMode(true);
+    stdin.resume();
+
+    const cleanup = () => {
+      stdin.removeListener("data", onData);
+      try { stdin.setRawMode(false); } catch { /* */ }
+    };
+
+    const onData = (data: Buffer) => {
+      // Arrow keys: ESC [ A/B
+      if (data[0] === 0x1b && data[1] === 0x5b) {
+        if (data[2] === 0x41) {
+          // Up
+          index = (index - 1 + permissionOptions.length) % permissionOptions.length;
+          render(false);
+        } else if (data[2] === 0x42) {
+          // Down
+          index = (index + 1) % permissionOptions.length;
+          render(false);
+        }
+      } else if (data[0] === 0x0d) {
+        // Enter — confirm
+        cleanup();
+        resolve(permissionOptions[index].value);
+      } else if (data[0] === 0x1b && data.length === 1) {
+        // ESC — cancel
+        cleanup();
+        resolve(current);
+      }
+    };
+
+    stdin.on("data", onData);
+  });
 }
 
 // ── ESC key listener ────────────────────────────────────
