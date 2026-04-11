@@ -234,47 +234,60 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
 
   printBanner();
 
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: PROMPT,
-  });
+  return new Promise<void>((resolve) => {
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: PROMPT,
+    });
 
-  rl.prompt();
+    rl.on("close", () => {
+      resolve();
+    });
 
-  for await (const line of rl) {
-    const input = line.trim();
-    if (!input) {
-      rl.prompt();
-      continue;
-    }
-
-    // Slash command
-    if (input.startsWith("/")) {
-      const [cmdName, ...rest] = input.slice(1).split(/\s+/);
-      const cmd = slashCommands.find((c) => c.name === cmdName);
-      if (cmd) {
-        const shouldContinue = await cmd.handler(
-          rest.join(" "),
-          state,
-          rl,
-        );
-        if (!shouldContinue) {
-          console.log(chalk.dim("\n  お先に失礼します。\n"));
-          rl.close();
-          return;
-        }
-      } else {
-        printInfo(`Unknown command: /${cmdName}. Type /help.`);
+    const handleLine = async (line: string) => {
+      const input = line.trim();
+      if (!input) {
+        rl.prompt();
+        return;
       }
-      rl.prompt();
-      continue;
-    }
 
-    // Natural language input
-    await runTurn(input, state);
+      // Slash command
+      if (input.startsWith("/")) {
+        const [cmdName, ...rest] = input.slice(1).split(/\s+/);
+        const cmd = slashCommands.find((c) => c.name === cmdName);
+        if (cmd) {
+          const shouldContinue = await cmd.handler(
+            rest.join(" "),
+            state,
+            rl,
+          );
+          if (!shouldContinue) {
+            console.log(chalk.dim("\n  お先に失礼します。\n"));
+            rl.close();
+            return;
+          }
+        } else {
+          printInfo(`Unknown command: /${cmdName}. Type /help.`);
+        }
+        rl.prompt();
+        return;
+      }
+
+      // Natural language input
+      await runTurn(input, state);
+      rl.prompt();
+    };
+
+    rl.on("line", (line) => {
+      handleLine(line).catch((err) => {
+        printError(err instanceof Error ? err.message : String(err));
+        rl.prompt();
+      });
+    });
+
     rl.prompt();
-  }
+  });
 }
 
 // ── Single turn execution ───────────────────────────────

@@ -2,4 +2,7 @@
 import { createProgram } from "./shokyaku/program.js";
 
 const program = createProgram();
-await program.parseAsync(process.argv);
+program.parseAsync(process.argv).catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});
