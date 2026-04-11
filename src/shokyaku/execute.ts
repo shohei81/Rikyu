@@ -90,29 +90,32 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   const spinner = createSpinner(config.progress);
 
   // Conduct the chaji
-  const result = await hanto.conduct(
-    {
-      id: requestId,
-      brief,
-      userRequest: options.userRequest,
-      context: context.blocks,
-      mode: brief.mode,
-      claudeSessionId: options.claudeSessionId,
-      mizuyaResult: options.mizuyaResult,
-      mizuyaFailure: options.mizuyaFailure,
-      skipMizuya: !shouldUseMizuya(brief.task),
-      toolPermission: resolveToolPermission(options.toolPermission, brief),
-    },
-    { cwd: context.cwd, signal: options.signal },
-    {
-      onPhase: (phase) => updateSpinner(spinner, phase),
-      onDegraded: (reason) => {
-        spinner?.warn(chalk.yellow(`Degraded: ${reason}`));
+  let result: ChajiResult;
+  try {
+    result = await hanto.conduct(
+      {
+        id: requestId,
+        brief,
+        userRequest: options.userRequest,
+        context: context.blocks,
+        mode: brief.mode,
+        claudeSessionId: options.claudeSessionId,
+        mizuyaResult: options.mizuyaResult,
+        mizuyaFailure: options.mizuyaFailure,
+        skipMizuya: !shouldUseMizuya(brief.task),
+        toolPermission: resolveToolPermission(options.toolPermission, brief),
       },
-    },
-  );
-
-  stopSpinner(spinner);
+      { cwd: context.cwd, signal: options.signal },
+      {
+        onPhase: (phase) => updateSpinner(spinner, phase),
+        onDegraded: (reason) => {
+          spinner?.warn(chalk.yellow(`Degraded: ${reason}`));
+        },
+      },
+    );
+  } finally {
+    stopSpinner(spinner);
+  }
 
   // Output formatting
   if (!options.suppressOutput) {

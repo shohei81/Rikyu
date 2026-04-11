@@ -522,22 +522,23 @@ function listenForEsc(callback: () => void): () => void {
   stdin.setRawMode(true);
   stdin.resume();
 
-  let fired = false;
-  const onData = (data: Buffer) => {
-    if (fired) return;
-    // ESC (0x1b alone) or Ctrl-C (0x03)
-    if ((data.length === 1 && data[0] === 0x1b) || data[0] === 0x03) {
-      fired = true;
-      cleanup();
-      callback();
-    }
-  };
-
+  let cleaned = false;
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
     stdin.removeListener("data", onData);
     try { stdin.setRawMode(false); } catch { /* */ }
     for (const fn of saved) {
       stdin.on("data", fn as (...args: unknown[]) => void);
+    }
+  };
+
+  const onData = (data: Buffer) => {
+    if (cleaned) return;
+    // ESC (0x1b alone) or Ctrl-C (0x03)
+    if ((data.length === 1 && data[0] === 0x1b) || data[0] === 0x03) {
+      cleanup();
+      callback();
     }
   };
 
