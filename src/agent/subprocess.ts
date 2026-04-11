@@ -20,6 +20,7 @@ export interface SubprocessOptions {
   stdin?: string;
   maxTokens?: number;
   spawnImpl?: typeof spawn;
+  signal?: AbortSignal;
 }
 
 export interface SubprocessResult {
@@ -61,6 +62,27 @@ export async function runSubprocess(
       settled = true;
       fn();
     };
+
+    // AbortSignal — ESC key or other cancellation
+    if (options.signal) {
+      const onAbort = () => {
+        child.kill("SIGTERM");
+        settle(() =>
+          reject(
+            new ProviderError(provider, "SIGNAL", `${provider} CLI aborted`, {
+              stdout,
+              stderr,
+              signal: "SIGTERM",
+            }),
+          ),
+        );
+      };
+      if (options.signal.aborted) {
+        onAbort();
+      } else {
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
+    }
 
     const timer =
       options.timeoutMs !== undefined

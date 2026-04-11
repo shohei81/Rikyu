@@ -10,7 +10,7 @@
  * with independent judgment, guided by 和敬清寂 constraints.
  */
 
-import type { Agent, AgentResult, AgentRunOptions } from "../agent/types.js";
+import type { Agent, AgentResult, AgentRunOptions, ToolPermission } from "../agent/types.js";
 import { runSubprocess, estimateTokens } from "../agent/subprocess.js";
 import type { TeishuResponse } from "./schema.js";
 import { TeishuResponseSchema } from "./schema.js";
@@ -172,6 +172,11 @@ function wrapPlainText(text: string): TeishuResponse {
   return { output: text.trim(), needsMoreFromMizuya: false };
 }
 
+function toolsForPermission(perm: ToolPermission): string {
+  const base = "Read,Edit,Write,Glob,Grep";
+  return perm === "full" ? `${base},Bash` : base;
+}
+
 // ── Agent implementation ────────────────────────────────
 
 export class TeishuAgent implements Agent<TeishuResponse> {
@@ -182,11 +187,19 @@ export class TeishuAgent implements Agent<TeishuResponse> {
     prompt: string,
     options?: AgentRunOptions,
   ): Promise<AgentResult<TeishuResponse>> {
-    const toolUse = options?.toolUse === true;
+    const perm = options?.toolPermission ?? "safe";
     const args = ["-p"];
-    if (!toolUse) {
+
+    if (perm === "safe") {
       args.push("--output-format", "json");
+    } else {
+      // Tool mode: pass allowed tools based on permission level
+      args.push(
+        "--permission-mode", "acceptEdits",
+        "--allowedTools", toolsForPermission(perm),
+      );
     }
+
     if (options?.sessionId) {
       args.push("--resume", options.sessionId);
     }
@@ -201,10 +214,11 @@ export class TeishuAgent implements Agent<TeishuResponse> {
         timeoutMs: options?.timeoutMs,
         stdin: prompt,
         maxTokens: options?.maxTokens ?? 64_000,
+        signal: options?.signal,
       },
     );
 
-    const parsed = toolUse
+    const parsed = perm !== "safe"
       ? wrapPlainText(result.stdout)
       : parseTeishuOutput(result.stdout);
 

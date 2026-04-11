@@ -15,6 +15,7 @@ import { resolveMode, shouldUseMizuya } from "../hanto/toriawase.js";
 import { collectContext } from "../chaji/context.js";
 import { saveSnapshot } from "../chaji/store.js";
 import { loadConfig } from "../config/loader.js";
+import type { ToolPermission } from "../agent/types.js";
 import type { RikyuConfig } from "../config/schema.js";
 import type { ChajiMode, SessionBrief } from "../chaji/types.js";
 import type { MizuyaResponse } from "../mizuya/schema.js";
@@ -51,8 +52,10 @@ export interface ExecuteOptions {
   config?: RikyuConfig;
   /** Override Hanto (for testing) */
   hanto?: Hanto;
-  /** Explicit tool use override (from /tools command) */
-  toolUseOverride?: boolean;
+  /** Explicit tool permission override (from /tools command) */
+  toolPermission?: ToolPermission;
+  /** AbortSignal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface ExecuteResult extends ChajiResult {
@@ -98,9 +101,9 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
       mizuyaResult: options.mizuyaResult,
       mizuyaFailure: options.mizuyaFailure,
       skipMizuya: !shouldUseMizuya(brief.task),
-      toolUse: options.toolUseOverride ?? (brief.desiredOutcome === "apply" || brief.desiredOutcome === "patch-proposal"),
+      toolPermission: resolveToolPermission(options.toolPermission, brief),
     },
-    { cwd: context.cwd },
+    { cwd: context.cwd, signal: options.signal },
     {
       onPhase: (phase) => updateSpinner(spinner, phase),
       onDegraded: (reason) => {
@@ -199,6 +202,17 @@ function updateSpinner(spinner: Ora | undefined, phase: string): void {
 
 function stopSpinner(spinner: Ora | undefined): void {
   if (spinner?.isSpinning) spinner.stop();
+}
+
+function resolveToolPermission(
+  explicit: ToolPermission | undefined,
+  brief: SessionBrief,
+): ToolPermission {
+  if (explicit) return explicit;
+  // Auto-enable for fix --apply / --patch
+  if (brief.desiredOutcome === "apply") return "full";
+  if (brief.desiredOutcome === "patch-proposal") return "edit";
+  return "safe";
 }
 
 function writeVerbose(result: ChajiResult, brief: SessionBrief): void {

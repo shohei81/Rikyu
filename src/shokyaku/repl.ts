@@ -17,7 +17,7 @@ import {
 } from "../chaji/store.js";
 import type { SessionBrief } from "../chaji/types.js";
 import type { MizuyaResponse } from "../mizuya/schema.js";
-import { ProviderError } from "../agent/types.js";
+import { ProviderError, type ToolPermission } from "../agent/types.js";
 import { execute } from "./execute.js";
 import { renderMarkdown } from "./render.js";
 
@@ -30,7 +30,7 @@ interface ReplState {
   lastMizuyaResponse?: MizuyaResponse;
   consecutiveFailures: number;
   circuitOpen: boolean;
-  toolUse: boolean;
+  toolPermission: ToolPermission;
 }
 
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -82,7 +82,7 @@ const slashCommands: SlashCommand[] = [
   {
     name: "help",
     description: "Show available commands",
-    handler: async (_, state) => {
+    handler: async () => {
       console.log();
       console.log(chalk.white.bold("  Commands"));
       console.log();
@@ -112,23 +112,41 @@ const slashCommands: SlashCommand[] = [
   },
   {
     name: "tools",
-    description: "Toggle tool permissions",
+    description: "Set tool permissions",
     handler: async (args, state) => {
       const arg = args.trim().toLowerCase();
-      if (arg === "on") {
-        state.toolUse = true;
-      } else if (arg === "off") {
-        state.toolUse = false;
+      const levels: Record<string, ToolPermission> = {
+        safe: "safe",
+        edit: "edit",
+        full: "full",
+      };
+      if (arg in levels) {
+        state.toolPermission = levels[arg];
       } else if (!arg) {
-        state.toolUse = !state.toolUse;
+        // Show current + help
+        console.log();
+        console.log(chalk.white.bold("  Tool Permissions"));
+        console.log();
+        for (const [name, desc] of [
+          ["safe", "read-only analysis (no tool use)"],
+          ["edit", "read + edit files (Read, Edit, Write, Glob, Grep)"],
+          ["full", "read + edit + run commands (+ Bash)"],
+        ] as const) {
+          const marker = state.toolPermission === name ? chalk.green("● ") : chalk.dim("○ ");
+          console.log(`  ${marker}${chalk.cyan(name.padEnd(6))} ${chalk.dim(desc)}`);
+        }
+        console.log(chalk.dim(`\n  Usage: /tools safe|edit|full\n`));
+        return true;
       } else {
-        printInfo("Usage: /tools [on|off]");
+        printInfo("Usage: /tools [safe|edit|full]");
         return true;
       }
-      const label = state.toolUse
-        ? chalk.green("on") + chalk.dim(" — edit files, run commands")
-        : chalk.yellow("off") + chalk.dim(" — read-only analysis");
-      console.log(`  ${chalk.dim("tools")} ${label}`);
+      const labels: Record<ToolPermission, string> = {
+        safe: chalk.yellow("safe") + chalk.dim(" — read-only analysis"),
+        edit: chalk.blue("edit") + chalk.dim(" — read + edit files"),
+        full: chalk.green("full") + chalk.dim(" — read + edit + bash"),
+      };
+      console.log(`  ${chalk.dim("tools")} ${labels[state.toolPermission]}`);
       return true;
     },
   },
@@ -193,8 +211,12 @@ const slashCommands: SlashCommand[] = [
       if (state.lastBrief) {
         console.log(`  ${chalk.dim("last task")} ${state.lastBrief.task}`);
       }
-      const toolLabel = state.toolUse ? chalk.green("on") : chalk.yellow("off");
-      console.log(`  ${chalk.dim("tools")}     ${toolLabel}`);
+      const permColors: Record<ToolPermission, string> = {
+        safe: chalk.yellow("safe"),
+        edit: chalk.blue("edit"),
+        full: chalk.green("full"),
+      };
+      console.log(`  ${chalk.dim("tools")}     ${permColors[state.toolPermission]}`);
       console.log(
         `  ${chalk.dim("circuit")}   ${state.circuitOpen ? chalk.red("open") : chalk.green("closed")}`,
       );
@@ -240,7 +262,7 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
     sessionId: randomUUID(),
     consecutiveFailures: 0,
     circuitOpen: false,
-    toolUse: false,
+    toolPermission: "safe",
   };
 
   // Handle --resume
@@ -348,6 +370,12 @@ async function runTurn(
       }
     : classifyBrief(input, state.lastBrief);
 
+  const controller = new AbortController();
+  const cleanupEsc = listenForEsc(() => {
+    controller.abort();
+    printInfo("interrupted");
+  });
+
   try {
     const result = await execute({
       brief,
@@ -355,7 +383,8 @@ async function runTurn(
       sessionId: state.sessionId,
       claudeSessionId: state.claudeSessionId,
       suppressOutput: true,
-      toolUseOverride: state.toolUse,
+      toolPermission: state.toolPermission !== "safe" ? state.toolPermission : undefined,
+      signal: controller.signal,
       mizuyaResult:
         state.lastMizuyaResponse && briefUnchanged(brief, state.lastBrief)
           ? state.lastMizuyaResponse
@@ -387,7 +416,9 @@ async function runTurn(
     state.consecutiveFailures = cb.consecutiveFailures;
     state.circuitOpen = cb.open;
   } catch (error) {
-    if (error instanceof ProviderError) {
+    if (controller.signal.aborted) {
+      // ESC — already printed "interrupted", just return
+    } else if (error instanceof ProviderError) {
       printError(`[${error.provider}:${error.code}] ${error.message}`);
       if (error.provider === "codex") {
         state.consecutiveFailures++;
@@ -401,6 +432,8 @@ async function runTurn(
     } else {
       printError(error instanceof Error ? error.message : String(error));
     }
+  } finally {
+    cleanupEsc();
   }
 }
 
@@ -410,6 +443,33 @@ function briefUnchanged(
 ): boolean {
   if (!previous) return false;
   return current.task === previous.task && current.target === previous.target;
+}
+
+// ── ESC key listener ────────────────────────────────────
+
+function listenForEsc(callback: () => void): () => void {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || !stdin.setRawMode) return () => {};
+
+  stdin.setRawMode(true);
+  stdin.resume();
+
+  const onData = (data: Buffer) => {
+    // ESC = 0x1b as a single byte (not part of an escape sequence)
+    if (data.length === 1 && data[0] === 0x1b) {
+      callback();
+    }
+  };
+  stdin.on("data", onData);
+
+  return () => {
+    stdin.removeListener("data", onData);
+    try {
+      stdin.setRawMode(false);
+    } catch {
+      // stdin may already be destroyed
+    }
+  };
 }
 
 // ── Circuit breaker (exported for testing) ──────────────

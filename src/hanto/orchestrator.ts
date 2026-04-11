@@ -16,7 +16,7 @@
  *   退席 (Taiseki)   — return result
  */
 
-import type { Agent, AgentRunOptions, PhaseSpan, ProviderName } from "../agent/types.js";
+import type { Agent, AgentRunOptions, PhaseSpan, ProviderName, ToolPermission } from "../agent/types.js";
 import { ProviderError } from "../agent/types.js";
 import type { MizuyaResponse } from "../mizuya/schema.js";
 import type { TeishuResponse } from "../teishu/schema.js";
@@ -37,8 +37,8 @@ export interface ChajiRequest {
   mizuyaResult?: MizuyaResponse;
   mizuyaFailure?: unknown;
   skipMizuya?: boolean;
-  /** Allow teishu to use tools (edit files, run commands) */
-  toolUse?: boolean;
+  /** Tool permission level for teishu */
+  toolPermission?: ToolPermission;
 }
 
 export interface ChajiResult {
@@ -123,7 +123,7 @@ export class Hanto {
     const maxTurns = maxMizuyaTurns(request.mode ?? request.brief.mode);
 
     while (
-      !request.toolUse &&
+      !(request.toolPermission && request.toolPermission !== "safe") &&
       !request.skipMizuya &&
       !degradedReason &&
       teishuResponse.needsMoreFromMizuya &&
@@ -195,14 +195,14 @@ export class Hanto {
       mizuyaResponse,
       mizuyaSkipped: request.skipMizuya,
       followUpQuestion,
-      toolUse: request.toolUse,
+      toolUse: request.toolPermission && request.toolPermission !== "safe",
     });
 
     try {
       const result = await this.teishu.run(prompt, {
         ...runOptions,
         sessionId: request.claudeSessionId,
-        toolUse: request.toolUse,
+        toolPermission: request.toolPermission,
       });
       phases.push(
         makeSpan(spanName, t0, turnStart, result.durationMs, "claude", result.tokenUsage),

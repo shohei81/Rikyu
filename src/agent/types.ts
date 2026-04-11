@@ -11,14 +11,25 @@ export type ProviderName = "claude" | "codex";
 
 // ── Agent interface ─────────────────────────────────────
 
+/**
+ * Tool permission level — modeled after Claude/Codex CLI permissions:
+ *
+ * - safe: read-only analysis, no tool use (default)
+ * - edit: file read/write (Read, Edit, Write, Glob, Grep)
+ * - full: file + command execution (+ Bash)
+ */
+export type ToolPermission = "safe" | "edit" | "full";
+
 export interface AgentRunOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   sessionId?: string;
   maxTokens?: number;
-  /** Allow agent to use tools (edit files, run commands) */
-  toolUse?: boolean;
+  /** Tool permission level */
+  toolPermission?: ToolPermission;
+  /** AbortSignal for cancellation (e.g. ESC key) */
+  signal?: AbortSignal;
 }
 
 export interface AgentResult<T = unknown> {
