@@ -17,6 +17,8 @@ export interface AgentRunOptions {
   timeoutMs?: number;
   sessionId?: string;
   maxTokens?: number;
+  /** Allow agent to use tools (edit files, run commands) */
+  toolUse?: boolean;
 }
 
 export interface AgentResult<T = unknown> {

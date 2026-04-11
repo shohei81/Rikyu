@@ -37,6 +37,8 @@ export interface ChajiRequest {
   mizuyaResult?: MizuyaResponse;
   mizuyaFailure?: unknown;
   skipMizuya?: boolean;
+  /** Allow teishu to use tools (edit files, run commands) */
+  toolUse?: boolean;
 }
 
 export interface ChajiResult {
@@ -117,9 +119,11 @@ export class Hanto {
     );
 
     // ── 薄茶 (Usucha) — Follow-up loops ───────────────
+    // Skip follow-ups in tool use mode — teishu handles everything directly
     const maxTurns = maxMizuyaTurns(request.mode ?? request.brief.mode);
 
     while (
+      !request.toolUse &&
       !request.skipMizuya &&
       !degradedReason &&
       teishuResponse.needsMoreFromMizuya &&
@@ -191,12 +195,14 @@ export class Hanto {
       mizuyaResponse,
       mizuyaSkipped: request.skipMizuya,
       followUpQuestion,
+      toolUse: request.toolUse,
     });
 
     try {
       const result = await this.teishu.run(prompt, {
         ...runOptions,
         sessionId: request.claudeSessionId,
+        toolUse: request.toolUse,
       });
       phases.push(
         makeSpan(spanName, t0, turnStart, result.durationMs, "claude", result.tokenUsage),

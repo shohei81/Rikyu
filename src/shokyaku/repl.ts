@@ -281,8 +281,12 @@ export async function runRepl(options?: ReplOptions): Promise<void> {
           printError(err instanceof Error ? err.message : String(err));
         })
         .finally(() => {
-          rl.resume();
-          rl.prompt();
+          try {
+            rl.resume();
+            rl.prompt();
+          } catch {
+            // readline already closed (e.g. /exit)
+          }
         });
     });
 

@@ -26,6 +26,7 @@ export interface TeishuTemaeInput {
   mizuyaResponse?: MizuyaResponse;
   mizuyaSkipped?: boolean;
   followUpQuestion?: string;
+  toolUse?: boolean;
 }
 
 const taskHints: Record<string, string> = {
@@ -72,21 +73,29 @@ export function buildTeishuPrompt(input: TeishuTemaeInput): string {
     sections.push(``, `## Follow-up Context`, input.followUpQuestion);
   }
 
-  sections.push(
-    ``,
-    `## User Request`,
-    input.userRequest,
-    ``,
-    `## Output Format`,
-    `Respond with a single JSON object:`,
-    `{`,
-    `  "output": "your response text",`,
-    `  "needsMoreFromMizuya": false,`,
-    `  "followUpQuestion": null`,
-    `}`,
-    `Set needsMoreFromMizuya to true with followUpQuestion only if`,
-    `you genuinely need more code analysis to answer properly.`,
-  );
+  sections.push(``, `## User Request`, input.userRequest);
+
+  if (input.toolUse) {
+    sections.push(
+      ``,
+      `## Mode`,
+      `You have full tool access. Edit files, run commands, and apply`,
+      `changes directly. Summarize what you did when finished.`,
+    );
+  } else {
+    sections.push(
+      ``,
+      `## Output Format`,
+      `Respond with a single JSON object:`,
+      `{`,
+      `  "output": "your response text",`,
+      `  "needsMoreFromMizuya": false,`,
+      `  "followUpQuestion": null`,
+      `}`,
+      `Set needsMoreFromMizuya to true with followUpQuestion only if`,
+      `you genuinely need more code analysis to answer properly.`,
+    );
+  }
 
   return sections.join("\n");
 }
@@ -173,7 +182,11 @@ export class TeishuAgent implements Agent<TeishuResponse> {
     prompt: string,
     options?: AgentRunOptions,
   ): Promise<AgentResult<TeishuResponse>> {
-    const args = ["-p", "--output-format", "json"];
+    const toolUse = options?.toolUse === true;
+    const args = ["-p"];
+    if (!toolUse) {
+      args.push("--output-format", "json");
+    }
     if (options?.sessionId) {
       args.push("--resume", options.sessionId);
     }
@@ -191,7 +204,9 @@ export class TeishuAgent implements Agent<TeishuResponse> {
       },
     );
 
-    const parsed = parseTeishuOutput(result.stdout);
+    const parsed = toolUse
+      ? wrapPlainText(result.stdout)
+      : parseTeishuOutput(result.stdout);
 
     return {
       output: parsed.output,

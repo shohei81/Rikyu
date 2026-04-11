@@ -96,6 +96,7 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
       mizuyaResult: options.mizuyaResult,
       mizuyaFailure: options.mizuyaFailure,
       skipMizuya: !shouldUseMizuya(brief.task),
+      toolUse: brief.desiredOutcome === "apply" || brief.desiredOutcome === "patch-proposal",
     },
     { cwd: context.cwd },
     {
